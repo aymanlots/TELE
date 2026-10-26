@@ -35,6 +35,7 @@ import {
 } from '../types';
 import { getMoroccoDateString, getMoroccoYearMonth, addMonthsClamped, todayMA, monthMA, nowMA } from '../lib/dateUtils';
 import { encryptSensitiveData, generateUUID } from '../lib/cryptoUtils';
+import { getActiveShopPhoneNumber, setActiveShopPhoneNumber } from '../firebase';
 
 const DEVICE_ID_STORAGE_KEY = 'golden_shop_device_id';
 const SHOP_ID_STORAGE_KEY = 'golden_shop_id';
@@ -88,40 +89,18 @@ export function setDevicePrefix(prefix: string): void {
   } catch {}
 }
 
-export const DEFAULT_SHARED_SHOP_ID = 'golden-shop-tele-projet';
-
 /**
- * Multi-Tenancy: Get or initialize the unified shop_id for this store.
- * Defaults to DEFAULT_SHARED_SHOP_ID so Phone, PC and Tablet automatically connect
- * to the exact same store without manual configuration.
+ * Store account is identified strictly and exclusively by Phone Number (e.g. "0661234567").
+ * Firestore path: "shops/{phoneNumber}" with subcollections.
+ * No Shop IDs or manual codes.
  */
 export function getCurrentShopId(): string {
-  try {
-    let shopId = localStorage.getItem(SHOP_ID_STORAGE_KEY);
-    const isMigrated = localStorage.getItem('golden_shop_shared_id_migrated_v2');
-    if (!isMigrated) {
-      shopId = DEFAULT_SHARED_SHOP_ID;
-      localStorage.setItem(SHOP_ID_STORAGE_KEY, shopId);
-      localStorage.setItem('golden_shop_shared_id_migrated_v2', '1');
-    }
-    if (!shopId || shopId.trim() === '') {
-      shopId = DEFAULT_SHARED_SHOP_ID;
-      localStorage.setItem(SHOP_ID_STORAGE_KEY, shopId);
-    }
-    return shopId;
-  } catch {
-    return DEFAULT_SHARED_SHOP_ID;
-  }
+  const activePhone = getActiveShopPhoneNumber();
+  return activePhone || '0600000000';
 }
 
-export function setCurrentShopId(shopId: string): void {
-  try {
-    const clean = shopId?.trim();
-    if (clean) {
-      localStorage.setItem(SHOP_ID_STORAGE_KEY, clean);
-      localStorage.setItem('golden_shop_shared_id_migrated_v2', '1');
-    }
-  } catch {}
+export function setCurrentShopId(phoneNumber: string): void {
+  setActiveShopPhoneNumber(phoneNumber);
 }
 
 export function getCurrentUserContext(): { userId: string; role: UserRole; name: string; shopId: string } {
@@ -678,15 +657,13 @@ export async function getStoreSettings(): Promise<StoreSettings> {
       }
     }
 
+    const currentPhone = getCurrentShopId();
     const merged: StoreSettings = {
       ...DEFAULT_SETTINGS,
       ...val,
       resellerWhatsApp: val.resellerWhatsApp || '0618961387',
-      shopId: val.shopId || shopId,
+      shopId: currentPhone,
     };
-    if (val.shopId && val.shopId !== shopId) {
-      setCurrentShopId(val.shopId);
-    }
     return merged;
   }
   try {
@@ -3457,40 +3434,5 @@ export async function seedDemoData(): Promise<void> {
 export async function initializeDatabaseIfNeeded(): Promise<void> {
   await getStoreSettings();
   await processRecurringExpenses();
-
-  // One-time shop_id normalization so Phone & PC share identical store namespace
-  try {
-    const currentShopId = getCurrentShopId();
-    const normalized = localStorage.getItem('golden_shop_records_normalized_v2');
-    if (!normalized) {
-      const tables = [
-        db.products,
-        db.customers,
-        db.sales,
-        db.repairs,
-        db.spareParts,
-        db.warranties,
-        db.savTickets,
-        db.expenses,
-        db.recurringExpenses,
-        db.suppliers,
-        db.supplierPayments,
-        db.supplierPurchaseOrders,
-        db.customerPayments,
-        db.cashClosures,
-      ];
-      for (const tbl of tables) {
-        await (tbl as any).toCollection().modify((record: any) => {
-          if (!record.shop_id || record.shop_id !== currentShopId) {
-            record.shop_id = currentShopId;
-            record.updated_at = record.updated_at || new Date().toISOString();
-          }
-        });
-      }
-      localStorage.setItem('golden_shop_records_normalized_v2', '1');
-    }
-  } catch (err) {
-    console.warn('Normalization warning:', err);
-  }
 }
 

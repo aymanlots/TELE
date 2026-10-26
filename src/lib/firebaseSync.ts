@@ -3,18 +3,19 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  query,
-  where,
   onSnapshot,
   Unsubscribe,
+  getDoc,
 } from 'firebase/firestore';
-import { firestore, ensureFirebaseAuth, handleFirestoreError, OperationType } from '../firebase';
 import {
-  db,
-  getDeviceId,
-  getCurrentUserContext,
-  getCurrentShopId,
-} from '../db';
+  firestore,
+  ensureFirebaseAuth,
+  handleFirestoreError,
+  OperationType,
+  getActiveShopPhoneNumber,
+  normalizeShopPhoneNumber,
+} from '../firebase';
+import { db, getDeviceId, getCurrentUserContext } from '../db';
 
 export type SyncStatusState = 'synced' | 'pending' | 'offline' | 'error' | 'unconfigured';
 
@@ -26,6 +27,7 @@ export interface SyncStatusSnapshot {
   lastError: string | null;
   isSyncing: boolean;
   cloudProvider: 'firebase';
+  phoneNumber: string;
 }
 
 const LAST_SYNC_STORAGE_KEY = 'golden_shop_firebase_last_sync_at';
@@ -70,6 +72,7 @@ let currentSnapshot: SyncStatusSnapshot = {
   lastError: null,
   isSyncing: false,
   cloudProvider: 'firebase',
+  phoneNumber: getActiveShopPhoneNumber(),
 };
 
 function notifyListeners() {
@@ -98,10 +101,13 @@ export async function refreshSyncCounts(): Promise<void> {
         : allOutbox.length;
     const conflictCount = await db.syncConflicts.filter((c) => !c.resolved).count();
     const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    const activePhone = getActiveShopPhoneNumber();
 
     let nextStatus: SyncStatusState = currentSnapshot.status;
     if (!online) {
       nextStatus = 'offline';
+    } else if (!activePhone) {
+      nextStatus = 'unconfigured';
     } else if (currentSnapshot.lastError) {
       nextStatus = 'error';
     } else if (pendingCount > 0) {
@@ -115,13 +121,14 @@ export async function refreshSyncCounts(): Promise<void> {
       status: nextStatus,
       pendingCount,
       conflictCount,
+      phoneNumber: activePhone,
     };
     notifyListeners();
   } catch {}
 }
 
 /**
- * Mapping between local Dexie tables and Firestore collection names
+ * Mapping between local Dexie tables and Firestore subcollection names
  */
 export const TABLE_MAP: Record<string, { dexieTable: string; collectionName: string }> = {
   settings: { dexieTable: 'settings', collectionName: 'settings' },
@@ -148,7 +155,7 @@ export const TABLE_MAP: Record<string, { dexieTable: string; collectionName: str
 };
 
 /**
- * Push an item to Firestore
+ * Push an item to Firestore under shops/{phoneNumber}/{collectionName}/{docId}
  */
 async function pushItemToFirestore(
   tableKey: string,
@@ -158,13 +165,14 @@ async function pushItemToFirestore(
   const mapEntry = TABLE_MAP[tableKey];
   if (!mapEntry) return;
 
-  const shopId = payload?.shop_id || getCurrentShopId();
-  // Document ID is universally the UUID (or key for settings)
+  const phone = getActiveShopPhoneNumber();
+  if (!phone) return;
+
   const docId = payload.uuid || (payload.key ? String(payload.key) : null);
   if (!docId) return;
 
-  const colRef = collection(firestore, mapEntry.collectionName);
-  const docRef = doc(colRef, String(docId));
+  // Path: shops/{phoneNumber}/{collectionName}/{docId}
+  const docRef = doc(firestore, 'shops', phone, mapEntry.collectionName, String(docId));
 
   if (operation === 'delete') {
     if (payload.deleted_at) {
@@ -172,7 +180,7 @@ async function pushItemToFirestore(
         docRef,
         {
           ...payload,
-          shop_id: shopId,
+          phone,
           updated_at: new Date().toISOString(),
         },
         { merge: true }
@@ -186,14 +194,13 @@ async function pushItemToFirestore(
   // Sanitize payload for Firestore (remove undefined and local integer id)
   const cleanData: Record<string, any> = {};
   for (const [k, v] of Object.entries(payload)) {
-    // Strip local auto-increment integer ID to prevent collisions on other devices
     if (k === 'id' && typeof v === 'number') continue;
     if (v !== undefined) {
       cleanData[k] = v;
     }
   }
   cleanData.uuid = docId;
-  cleanData.shop_id = shopId;
+  cleanData.phone = phone;
   cleanData.device_id = payload.device_id || getDeviceId();
   cleanData.updated_at = cleanData.updated_at || new Date().toISOString();
 
@@ -212,6 +219,11 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
     return { success: false, processed: 0, errors: 0 };
   }
 
+  const phone = getActiveShopPhoneNumber();
+  if (!phone) {
+    return { success: false, processed: 0, errors: 0 };
+  }
+
   isPushingOutbox = true;
   let processed = 0;
   let errors = 0;
@@ -222,12 +234,10 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
     const outboxItems = await db.outbox.orderBy('id').limit(50).toArray();
 
     for (const item of outboxItems) {
-      // Permission check: employee can't push owner tables
       if (role === 'employee' && (OWNER_ONLY_TABLES.has(item.table) || item.table === 'settings')) {
         continue;
       }
 
-      // Check local-only settings
       if (item.table === 'settings' && isLocalOnlySettingKey(item.payload?.key)) {
         if (item.id) await db.outbox.delete(item.id);
         continue;
@@ -239,7 +249,7 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
         processed++;
       } catch (err) {
         errors++;
-        handleFirestoreError(err, OperationType.WRITE, item.table);
+        handleFirestoreError(err, OperationType.WRITE, `shops/${phone}/${item.table}`);
         console.warn(`Failed to push outbox item ${item.id} (${item.table}):`, err);
         if (item.id) {
           await db.outbox.update(item.id, {
@@ -247,7 +257,7 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
             lastError: String(err),
           });
         }
-        break; // Stop batch on first failure
+        break;
       }
     }
 
@@ -274,6 +284,7 @@ export async function triggerCloudSync(): Promise<{ success: boolean }> {
   notifyListeners();
 
   try {
+    await autoReconcileLocalDataToFirestore();
     const res = await processOutbox();
     currentSnapshot.lastError = res.errors > 0 ? 'Erreur lors de l’envoi' : null;
     return { success: res.success };
@@ -288,14 +299,18 @@ export async function triggerCloudSync(): Promise<{ success: boolean }> {
 
 /**
  * Real-time active listeners for multi-device synchronization using onSnapshot
+ * Connects directly to subcollections under shops/{phoneNumber}
  */
 let activeUnsubscribers: Unsubscribe[] = [];
 
-export function startRealtimeSync(): () => void {
+export function startRealtimeSync(customPhone?: string): () => void {
   stopRealtimeSync();
 
-  const shopId = getCurrentShopId();
-  const { role } = getCurrentUserContext();
+  const phone = customPhone ? normalizeShopPhoneNumber(customPhone) : getActiveShopPhoneNumber();
+  if (!phone) {
+    console.log('[FirebaseSync] No active phone account, skipping real-time sync.');
+    return stopRealtimeSync;
+  }
 
   const syncableCollections = [
     'products',
@@ -308,30 +323,49 @@ export function startRealtimeSync(): () => void {
     'cash_closures',
     'customer_payments',
     'stock_movements',
+    'expenses',
+    'recurring_expenses',
+    'suppliers',
+    'supplier_payments',
+    'supplier_purchase_orders',
+    'activity_logs',
+    'settings',
   ];
 
-  if (role !== 'employee') {
-    syncableCollections.push(
-      'expenses',
-      'recurring_expenses',
-      'suppliers',
-      'supplier_payments',
-      'supplier_purchase_orders',
-      'activity_logs',
-      'settings'
-    );
-  }
-
   ensureFirebaseAuth().then(() => {
+    // 1. Listen to parent shop document: shops/{phoneNumber}
+    try {
+      const shopDocRef = doc(firestore, 'shops', phone);
+      const unsubParent = onSnapshot(shopDocRef, async (snap) => {
+        if (snap.exists()) {
+          const shopData = snap.data();
+          if (shopData.storeName || shopData.ownerName) {
+            const current = await db.settings.get('store_settings');
+            const merged = {
+              ...(current?.value || {}),
+              storeName: shopData.storeName || current?.value?.storeName,
+              adminName: shopData.ownerName || current?.value?.adminName,
+              adminPhone: phone,
+              phone,
+            };
+            await db.settings.put({
+              key: 'store_settings',
+              value: merged,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
+      });
+      activeUnsubscribers.push(unsubParent);
+    } catch {}
+
+    // 2. Listen to all subcollections: shops/{phoneNumber}/{subcollection}
     for (const colName of syncableCollections) {
       try {
-        const q = query(
-          collection(firestore, colName),
-          where('shop_id', '==', shopId)
-        );
+        const subColRef = collection(firestore, 'shops', phone, colName);
 
         const unsub = onSnapshot(
-          q,
+          subColRef,
           { includeMetadataChanges: false },
           async (snapshot) => {
             for (const change of snapshot.docChanges()) {
@@ -348,13 +382,13 @@ export function startRealtimeSync(): () => void {
             notifyListeners();
           },
           (err) => {
-            handleFirestoreError(err, OperationType.LIST, colName);
+            handleFirestoreError(err, OperationType.LIST, `shops/${phone}/${colName}`);
           }
         );
 
         activeUnsubscribers.push(unsub);
       } catch (err) {
-        console.warn(`Could not start listener for ${colName}:`, err);
+        console.warn(`Could not start listener for shops/${phone}/${colName}:`, err);
       }
     }
   });
@@ -373,7 +407,6 @@ export function stopRealtimeSync(): void {
 
 /**
  * Apply a remote record into local Dexie
- * Automatically adjusts local auto-increment integer IDs to prevent collisions
  */
 async function applyRemoteChange(collectionName: string, remoteData: any): Promise<void> {
   const mapEntry = Object.values(TABLE_MAP).find((m) => m.collectionName === collectionName);
@@ -383,32 +416,53 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
   const table = (db as any)[tableName];
   if (!table) return;
 
-  const uuid = remoteData.uuid;
-  const key = remoteData.key;
-  if (!uuid && !key) return;
-
-  // Do not re-apply if it originated on this very device (prevents echo loops)
+  // Do not re-apply if originated on this exact device to avoid echo
   const thisDevice = getDeviceId();
   if (remoteData.device_id === thisDevice) {
     return;
   }
 
-  try {
-    let existing: any = null;
-    if (tableName === 'settings') {
-      existing = await table.get(key);
-    } else if (uuid) {
-      existing = await table.where('uuid').equals(uuid).first();
+  // Handle settings table
+  if (tableName === 'settings') {
+    const key = remoteData.key || 'store_settings';
+    try {
+      const existing = await table.get(key);
+      if (key === 'store_settings' && remoteData.value) {
+        const mergedVal = {
+          ...(existing?.value || {}),
+          ...remoteData.value,
+        };
+        await table.put({
+          key: 'store_settings',
+          value: mergedVal,
+          updated_at: remoteData.updated_at || new Date().toISOString(),
+        });
+        if (mergedVal.adminName) localStorage.setItem('golden_shop_admin_name', mergedVal.adminName);
+        if (mergedVal.adminPhone) localStorage.setItem('golden_shop_admin_phone', mergedVal.adminPhone);
+      } else {
+        await table.put({
+          key,
+          value: remoteData.value !== undefined ? remoteData.value : remoteData,
+          updated_at: remoteData.updated_at || new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.warn('Error applying remote setting:', err);
     }
+    return;
+  }
 
-    // Strip remote device's local integer id so Dexie creates its own clean local id
+  const uuid = remoteData.uuid;
+  if (!uuid) return;
+
+  try {
+    const existing = await table.where('uuid').equals(uuid).first();
     const { id: _remoteId, ...recordData } = remoteData;
 
     if (!existing) {
-      // Remote insert
+      // Remote insert into Dexie
       await table.add(recordData);
     } else {
-      // If insert-only table (like completed sales, logs), skip overwriting
       if (INSERT_ONLY_TABLES.has(collectionName) && !remoteData.deleted_at) {
         return;
       }
@@ -420,7 +474,7 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
         await table.put({
           ...existing,
           ...recordData,
-          id: existing.id, // Keep local integer primary key
+          id: existing.id, // Preserve local auto-increment id
         });
       }
     }
@@ -430,14 +484,119 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
 }
 
 /**
- * Migration helper: Push all local store records to Firebase Firestore in one click
+ * Automatic reconciliation: uploads local store data into shops/{phoneNumber} subcollections
+ */
+let isReconciling = false;
+
+export async function autoReconcileLocalDataToFirestore(): Promise<void> {
+  if (isReconciling) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  const phone = getActiveShopPhoneNumber();
+  if (!phone) return;
+
+  isReconciling = true;
+  try {
+    await ensureFirebaseAuth();
+    const thisDevice = getDeviceId();
+
+    // 1. Create / update parent shop document: shops/{phoneNumber}
+    const storeSettingsRec = await db.settings.get('store_settings');
+    const storeName = storeSettingsRec?.value?.storeName || 'المحل الذهبي';
+    const ownerName = storeSettingsRec?.value?.adminName || 'المدير';
+
+    const shopDocRef = doc(firestore, 'shops', phone);
+    await setDoc(
+      shopDocRef,
+      {
+        phoneNumber: phone,
+        storeName,
+        ownerName,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    // 2. Reconcile all local tables into subcollections: shops/{phoneNumber}/{collectionName}
+    const tablesToSync: Array<{ dexieTable: string; collectionName: string }> = [
+      { dexieTable: 'products', collectionName: 'products' },
+      { dexieTable: 'customers', collectionName: 'customers' },
+      { dexieTable: 'sales', collectionName: 'sales' },
+      { dexieTable: 'repairs', collectionName: 'repairs' },
+      { dexieTable: 'spareParts', collectionName: 'spare_parts' },
+      { dexieTable: 'warranties', collectionName: 'warranties' },
+      { dexieTable: 'savTickets', collectionName: 'sav_tickets' },
+      { dexieTable: 'suppliers', collectionName: 'suppliers' },
+      { dexieTable: 'supplierPayments', collectionName: 'supplier_payments' },
+      { dexieTable: 'supplierPurchaseOrders', collectionName: 'supplier_purchase_orders' },
+      { dexieTable: 'customerPayments', collectionName: 'customer_payments' },
+      { dexieTable: 'expenses', collectionName: 'expenses' },
+      { dexieTable: 'recurringExpenses', collectionName: 'recurring_expenses' },
+      { dexieTable: 'cashClosures', collectionName: 'cash_closures' },
+      { dexieTable: 'stockMovements', collectionName: 'stock_movements' },
+    ];
+
+    for (const item of tablesToSync) {
+      const table = (db as any)[item.dexieTable];
+      if (!table) continue;
+
+      const localRecords = await table.toArray();
+      if (!localRecords || localRecords.length === 0) continue;
+
+      for (const rec of localRecords) {
+        const docUuid = rec.uuid || (rec.id ? `${item.collectionName}_${rec.id}` : null);
+        if (!docUuid) continue;
+
+        const cleanRec: Record<string, any> = {};
+        for (const [k, v] of Object.entries(rec)) {
+          if (k === 'id' && typeof v === 'number') continue;
+          if (v !== undefined) cleanRec[k] = v;
+        }
+        cleanRec.uuid = docUuid;
+        cleanRec.phone = phone;
+        cleanRec.device_id = rec.device_id || thisDevice;
+        cleanRec.updated_at = rec.updated_at || new Date().toISOString();
+
+        const docRef = doc(firestore, 'shops', phone, item.collectionName, String(docUuid));
+        await setDoc(docRef, cleanRec, { merge: true });
+      }
+    }
+
+    // Push local store settings to subcollection: shops/{phoneNumber}/settings/store_settings
+    if (storeSettingsRec && storeSettingsRec.value) {
+      await setDoc(
+        doc(firestore, 'shops', phone, 'settings', 'store_settings'),
+        {
+          key: 'store_settings',
+          value: storeSettingsRec.value,
+          phone,
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    console.log(`[FirebaseSync] Reconciled all data to shops/${phone} successfully.`);
+  } catch (err) {
+    console.warn('[FirebaseSync] Reconciliation notice:', err);
+  } finally {
+    isReconciling = false;
+  }
+}
+
+/**
+ * Migration helper: Push all local store records to shops/{phoneNumber} in one click
  */
 export async function migrateAllLocalDataToFirestore(
   onProgress?: (progressPct: number, currentTable: string) => void
 ): Promise<{ success: boolean; totalMigrated: number; error?: string }> {
   try {
     await ensureFirebaseAuth();
-    const shopId = getCurrentShopId();
+    const phone = getActiveShopPhoneNumber();
+    if (!phone) {
+      return { success: false, totalMigrated: 0, error: 'المرجو تسجيل الدخول برقم الهاتف أولاً.' };
+    }
+
     let totalMigrated = 0;
 
     const tablesToMigrate: Array<{ dexieTable: string; collectionName: string; label: string }> = [
@@ -473,17 +632,17 @@ export async function migrateAllLocalDataToFirestore(
       const records = await table.toArray();
       for (const rec of records) {
         try {
-          const docUuid = rec.uuid || rec.id?.toString();
+          const docUuid = rec.uuid || (rec.id ? `${item.collectionName}_${rec.id}` : null);
           if (!docUuid) continue;
 
-          const docRef = doc(firestore, item.collectionName, String(docUuid));
+          const docRef = doc(firestore, 'shops', phone, item.collectionName, String(docUuid));
           const cleanRec: Record<string, any> = {};
           for (const [k, v] of Object.entries(rec)) {
             if (k === 'id' && typeof v === 'number') continue;
             if (v !== undefined) cleanRec[k] = v;
           }
           cleanRec.uuid = docUuid;
-          cleanRec.shop_id = shopId;
+          cleanRec.phone = phone;
           cleanRec.updated_at = cleanRec.updated_at || new Date().toISOString();
 
           await setDoc(docRef, cleanRec, { merge: true });
@@ -511,33 +670,38 @@ export async function migrateAllLocalDataToFirestore(
 let autoSyncInterval: any = null;
 
 export function initFirebaseSync(): void {
-  // Start real-time sync listeners
-  startRealtimeSync();
+  const phone = getActiveShopPhoneNumber();
+  if (!phone) {
+    return;
+  }
 
-  // Process outbox immediately
+  // 1. Start real-time sync listeners on shops/{phoneNumber}
+  startRealtimeSync(phone);
+
+  // 2. Process outbox queue immediately
   processOutbox();
 
-  // Automatic online / offline network listener
+  // 3. Automatically reconcile local database with Firestore
+  autoReconcileLocalDataToFirestore();
+
+  // 4. Automatic online / offline network listener
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
-      console.log('[Sync] Network connection restored. Auto-syncing outbox...');
       currentSnapshot.status = 'pending';
       notifyListeners();
-      // Re-initialize listeners and push queued offline items automatically
       startRealtimeSync();
+      autoReconcileLocalDataToFirestore();
       processOutbox();
     });
 
     window.addEventListener('offline', () => {
-      console.log('[Sync] Network offline. Storing operations locally.');
       currentSnapshot.status = 'offline';
       notifyListeners();
     });
 
     if (!autoSyncInterval) {
-      // Auto-check and push pending items every 10 seconds if online
       autoSyncInterval = setInterval(() => {
-        if (navigator.onLine) {
+        if (navigator.onLine && getActiveShopPhoneNumber()) {
           processOutbox();
         }
       }, 10000);

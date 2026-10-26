@@ -5,8 +5,21 @@ import {
   persistentMultipleTabManager,
   getFirestore,
   Firestore,
+  doc,
+  collection,
+  DocumentReference,
+  CollectionReference,
 } from 'firebase/firestore';
-import { getAuth, Auth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import {
+  getAuth,
+  Auth,
+  signInAnonymously,
+  onAuthStateChanged,
+  User,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+} from 'firebase/auth';
 import rawConfig from '../firebase-applet-config.json';
 
 // Guaranteed fallback config for tele-projet in case Netlify build doesn't receive env variables
@@ -61,7 +74,6 @@ try {
     }),
   });
 } catch {
-  // If already initialized (e.g. during HMR or multiple mounts)
   firestoreInstance = getFirestore(app);
 }
 
@@ -69,6 +81,132 @@ export const firestore: Firestore = firestoreInstance;
 
 // Initialize Firebase Auth
 export const auth: Auth = getAuth(app);
+
+// Key storage for active authenticated shop account
+export const ACTIVE_PHONE_STORAGE_KEY = 'golden_shop_phone_account';
+
+/**
+ * Normalizes phone numbers to standard Moroccan Document ID format: "06xxxxxxxx" or "07xxxxxxxx"
+ */
+export function normalizeShopPhoneNumber(rawPhone: string | null | undefined): string {
+  if (!rawPhone) return '';
+  const clean = rawPhone.trim().replace(/[^\d+]/g, '');
+  if (!clean) return '';
+
+  let digits = clean.replace(/\D/g, '');
+  if (digits.startsWith('00212')) {
+    digits = digits.slice(5);
+  } else if (digits.startsWith('212') && digits.length >= 11) {
+    digits = digits.slice(3);
+  }
+
+  // Prepend 0 if 9 digits starting with 6 or 7 (standard Moroccan mobile)
+  if (digits.length === 9 && (digits.startsWith('6') || digits.startsWith('7'))) {
+    digits = `0${digits}`;
+  }
+
+  return digits;
+}
+
+/**
+ * Formats a phone number to international E.164 format (+2126xxxxxxxx) required by Firebase Auth
+ */
+export function formatPhoneForE164(rawPhone: string): string {
+  const normalized = normalizeShopPhoneNumber(rawPhone);
+  if (normalized.startsWith('0') && (normalized.startsWith('06') || normalized.startsWith('07') || normalized.startsWith('05'))) {
+    return `+212${normalized.slice(1)}`;
+  }
+  if (rawPhone.trim().startsWith('+')) {
+    return rawPhone.trim().replace(/[^\d+]/g, '');
+  }
+  return `+212${normalized}`;
+}
+
+export function getActiveShopPhoneNumber(): string {
+  try {
+    const saved = localStorage.getItem(ACTIVE_PHONE_STORAGE_KEY);
+    return normalizeShopPhoneNumber(saved);
+  } catch {
+    return '';
+  }
+}
+
+export function setActiveShopPhoneNumber(phone: string): void {
+  const normalized = normalizeShopPhoneNumber(phone);
+  if (normalized) {
+    try {
+      localStorage.setItem(ACTIVE_PHONE_STORAGE_KEY, normalized);
+    } catch {}
+  }
+}
+
+export function clearActiveShopPhoneNumber(): void {
+  try {
+    localStorage.removeItem(ACTIVE_PHONE_STORAGE_KEY);
+  } catch {}
+}
+
+/**
+ * Get the Firestore document reference for a shop by phone number: "shops/{phoneNumber}"
+ */
+export function getShopDocRef(phoneNumber?: string): DocumentReference | null {
+  const phone = phoneNumber ? normalizeShopPhoneNumber(phoneNumber) : getActiveShopPhoneNumber();
+  if (!phone) return null;
+  return doc(firestore, 'shops', phone);
+}
+
+/**
+ * Get a Firestore subcollection reference under the shop: "shops/{phoneNumber}/{subcollectionName}"
+ */
+export function getShopCollectionRef(subcollectionName: string, phoneNumber?: string): CollectionReference | null {
+  const phone = phoneNumber ? normalizeShopPhoneNumber(phoneNumber) : getActiveShopPhoneNumber();
+  if (!phone) return null;
+  return collection(firestore, 'shops', phone, subcollectionName);
+}
+
+/**
+ * Set up reCAPTCHA verifier for Phone Auth
+ */
+export function setupRecaptchaVerifier(containerOrButtonId: string): RecaptchaVerifier {
+  if ((window as any).recaptchaVerifier) {
+    try {
+      (window as any).recaptchaVerifier.clear();
+    } catch {}
+  }
+  const verifier = new RecaptchaVerifier(auth, containerOrButtonId, {
+    size: 'invisible',
+    callback: () => {
+      // reCAPTCHA solved
+    },
+    'expired-callback': () => {
+      console.warn('reCAPTCHA expired');
+    },
+  });
+  (window as any).recaptchaVerifier = verifier;
+  return verifier;
+}
+
+/**
+ * Send Phone Auth OTP code via Firebase Auth
+ */
+export async function sendPhoneOtp(
+  phoneNumber: string,
+  verifier: RecaptchaVerifier
+): Promise<ConfirmationResult> {
+  const e164 = formatPhoneForE164(phoneNumber);
+  return await signInWithPhoneNumber(auth, e164, verifier);
+}
+
+/**
+ * Confirm OTP code and complete Firebase login
+ */
+export async function verifyPhoneOtp(
+  confirmationResult: ConfirmationResult,
+  code: string
+): Promise<User> {
+  const res = await confirmationResult.confirm(code);
+  return res.user;
+}
 
 // Operation types for Firestore security error diagnosis
 export enum OperationType {
@@ -87,16 +225,7 @@ export interface FirestoreErrorInfo {
   authInfo: {
     userId: string | null;
     email: string | null;
-    emailVerified: boolean | null;
-    isAnonymous: boolean | null;
-    tenantId: string | null;
-    providerData: Array<{
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      phoneNumber: string | null;
-      photoURL: string | null;
-    }>;
+    phoneNumber: string | null;
   };
 }
 
@@ -115,17 +244,7 @@ export function handleFirestoreError(
     authInfo: {
       userId: currentUser?.uid || null,
       email: currentUser?.email || null,
-      emailVerified: currentUser?.emailVerified || null,
-      isAnonymous: currentUser?.isAnonymous || null,
-      tenantId: currentUser?.tenantId || null,
-      providerData:
-        currentUser?.providerData.map((provider) => ({
-          providerId: provider.providerId,
-          displayName: provider.displayName,
-          email: provider.email,
-          phoneNumber: provider.phoneNumber,
-          photoURL: provider.photoURL,
-        })) || [],
+      phoneNumber: currentUser?.phoneNumber || null,
     },
   };
 
@@ -134,8 +253,7 @@ export function handleFirestoreError(
 }
 
 /**
- * Ensures an authenticated session exists for the device
- * Uses Anonymous sign-in if available. If disabled in Firebase console, gracefully resolves null.
+ * Ensures an authenticated session exists
  */
 let authInitPromise: Promise<User | null> | null = null;
 
@@ -154,8 +272,6 @@ export async function ensureFirebaseAuth(): Promise<User | null> {
             const cred = await signInAnonymously(auth);
             resolve(cred.user);
           } catch (err) {
-            // Anonymous sign-in might not be turned on in Firebase Console yet; don't break the app
-            console.info('Firebase anonymous auth optional info:', (err as any)?.message || err);
             resolve(null);
           }
         }

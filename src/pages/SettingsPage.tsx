@@ -115,7 +115,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
   const [saleReceiptTemplate, setSaleReceiptTemplate] = useState('');
   const [activeTemplateTab, setActiveTemplateTab] = useState<'repair' | 'credit' | 'receipt'>('repair');
 
-  const { setAutoLockMinutesState, changePin, can } = useAccessAuth();
+  const { setAutoLockMinutesState, changePin, can, logout, activePhone } = useAccessAuth();
 
   // Users & Cloud Migration State (Owner only)
   const [shopUsers, setShopUsers] = useState<ShopUserProfile[]>([]);
@@ -1563,25 +1563,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   </div>
                 </div>
 
-                {/* Shared Shop ID / Linking Code */}
-                <div className="p-2.5 rounded-lg bg-neutral-900/90 border border-neutral-800 flex items-center justify-between gap-2 text-[11px]">
+                {/* Phone Account Connection Card */}
+                <div className="p-3 rounded-lg bg-neutral-900/90 border border-neutral-800 flex items-center justify-between gap-3 text-[11px]">
                   <div>
                     <span className="text-neutral-400 block text-[10px]">
-                      {language === 'ar' ? 'معرف ربط الأجهزة (Shop ID):' : 'Identifiant boutique (Shop ID) :'}
+                      {language === 'ar' ? 'الحساب المرتبط برقم الهاتف:' : 'Compte lié par numéro :'}
                     </span>
-                    <span className="font-mono font-bold text-amber-300 text-xs">
-                      {getCurrentShopId()}
-                    </span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-mono font-bold text-amber-300 text-sm">
+                        {activePhone || getCurrentShopId() || '06xxxxxxxx'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        shops/{activePhone || getCurrentShopId()}
+                      </span>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(getCurrentShopId());
-                      success(language === 'ar' ? 'تم نسخ رمز المحل.' : 'ID Boutique copié.');
+                      logout();
+                      success(language === 'ar' ? 'تم تسجيل الخروج. يمكنك الدخول برقم هاتف آخر.' : 'Déconnecté.');
                     }}
-                    className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[10px] font-bold border border-neutral-700 cursor-pointer transition"
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[10px] font-bold border border-rose-500/30 cursor-pointer transition shrink-0"
                   >
-                    {language === 'ar' ? 'نسخ' : 'Copier'}
+                    {language === 'ar' ? 'تسجيل الخروج / تبديل الرقم' : 'Changer de numéro'}
                   </button>
                 </div>
 
