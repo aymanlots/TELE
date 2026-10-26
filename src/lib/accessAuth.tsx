@@ -2,14 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import {
   REMEMBER_DEVICE_MS,
   MAX_FAILED_ATTEMPTS,
-  LOCKOUT_DURATION_MS,
   DEFAULT_AUTO_LOCK_MINUTES,
 } from '../config/access';
 import { db, getStoreSettings, saveStoreSettings, setCurrentShopId } from '../db';
-import { UserRole, AppTab, AdminApprovalRequest, ShopMember } from '../types';
+import { UserRole, AppTab, AdminApprovalRequest } from '../types';
 import {
-  hashPinPBKDF2,
-  verifyPinPBKDF2,
   setSessionPinSecret,
   generateUUID,
 } from './cryptoUtils';
@@ -28,7 +25,7 @@ import {
   firestore,
 } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { initFirebaseSync } from './firebaseSync';
+import { initFirebaseSync, stopRealtimeSync } from './firebaseSync';
 
 export function normalizePhoneForCompare(phone: string | undefined): string {
   if (!phone) return '';
@@ -113,9 +110,34 @@ const STORAGE_KEYS = {
   LOCKOUT_UNTIL: 'golden_access_lockout_until',
   PIN_PBKDF2: 'golden_access_pin_pbkdf2',
   USER_ROLE: 'golden_shop_user_role',
-  RECOVERY_OTP: 'golden_shop_recovery_otp',
-  RECOVERY_OTP_EXPIRES: 'golden_shop_recovery_otp_expires',
+  LAST_LOGGED_PHONE: 'golden_shop_last_logged_phone',
 };
+
+async function clearLocalDataForPhoneSwitch(): Promise<void> {
+  try {
+    await Promise.all([
+      db.products.clear(),
+      db.customers.clear(),
+      db.sales.clear(),
+      db.repairs.clear(),
+      db.spareParts.clear(),
+      db.warranties.clear(),
+      db.savTickets.clear(),
+      db.suppliers.clear(),
+      db.supplierPayments.clear(),
+      db.supplierPurchaseOrders.clear(),
+      db.customerPayments.clear(),
+      db.expenses.clear(),
+      db.recurringExpenses.clear(),
+      db.cashClosures.clear(),
+      db.stockMovements.clear(),
+      db.outbox.clear(),
+      db.syncConflicts.clear(),
+    ]);
+  } catch (e) {
+    console.warn('Notice clearing tables on phone switch:', e);
+  }
+}
 
 export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activePhone, setActivePhoneState] = useState<string>(() => getActiveShopPhoneNumber());
@@ -174,6 +196,14 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       try {
+        // Check if switching from a different phone number on this device
+        const lastPhone = normalizeShopPhoneNumber(localStorage.getItem(STORAGE_KEYS.LAST_LOGGED_PHONE));
+        if (lastPhone && lastPhone !== cleanPhone) {
+          stopRealtimeSync();
+          await clearLocalDataForPhoneSwitch();
+        }
+        localStorage.setItem(STORAGE_KEYS.LAST_LOGGED_PHONE, cleanPhone);
+
         // 1. Set active phone in local storage
         setActiveShopPhoneNumber(cleanPhone);
         setCurrentShopId(cleanPhone);
@@ -194,6 +224,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               shopDocRef,
               {
                 phone: cleanPhone,
+                phoneNumber: cleanPhone,
                 storeName: remoteStoreName || 'المحل الذهبي',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -229,7 +260,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setLockoutSecondsLeft(0);
         lastActivityRef.current = now;
 
-        // 5. Initialize Firebase real-time listeners for this phone
+        // 5. Initialize Firebase real-time listeners & pull existing data for this phone
         initFirebaseSync();
 
         return { success: true };
@@ -242,6 +273,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Logout: Clear phone account and lock
   const logout = useCallback(() => {
+    stopRealtimeSync();
     clearActiveShopPhoneNumber();
     setActivePhoneState('');
     setIsUnlocked(false);
@@ -286,13 +318,12 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [isUnlocked, autoLockMinutes, lock]);
 
   // Legacy compatibility helpers
-  const setupInitialPin = async (newPin: string) => {
-    return { success: true };
-  };
-
-  const verifyPin = async (pin: string, role?: UserRole) => {
-    return { success: true, remainingAttempts: MAX_FAILED_ATTEMPTS, lockedOut: false };
-  };
+  const setupInitialPin = async () => ({ success: true });
+  const verifyPin = async () => ({
+    success: true,
+    remainingAttempts: MAX_FAILED_ATTEMPTS,
+    lockedOut: false,
+  });
 
   const loginWithCredentials = async (params: LoginCredentialsParams) => {
     if (params.phone) {
@@ -315,17 +346,13 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return await loginWithPhone(params.phone, params.storeName);
   };
 
-  const sendWhatsAppRecoveryCode = async (phone: string) => {
-    return { success: true, maskedPhone: phone };
-  };
+  const sendWhatsAppRecoveryCode = async (phone: string) => ({
+    success: true,
+    maskedPhone: phone,
+  });
 
-  const resetAdminPasswordWithCode = async (code: string, newPass: string) => {
-    return { success: true };
-  };
-
-  const verifyAdminPasswordOnly = async (password: string) => {
-    return true;
-  };
+  const resetAdminPasswordWithCode = async () => ({ success: true });
+  const verifyAdminPasswordOnly = async () => true;
 
   const submitAdminApprovalRequest = useCallback(
     async (req: Omit<AdminApprovalRequest, 'id' | 'createdAt' | 'status' | 'requestedBy'>) => {
@@ -347,9 +374,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     []
   );
 
-  const changePin = async (currentPin: string, newPin: string) => {
-    return { success: true };
-  };
+  const changePin = async () => ({ success: true });
 
   const isLockedOut = lockoutSecondsLeft > 0;
   const isOwnerMode = isOwnerRole(userRole);

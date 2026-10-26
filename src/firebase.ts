@@ -100,8 +100,11 @@ export function normalizeShopPhoneNumber(rawPhone: string | null | undefined): s
     digits = digits.slice(3);
   }
 
-  // Prepend 0 if 9 digits starting with 6 or 7 (standard Moroccan mobile)
-  if (digits.length === 9 && (digits.startsWith('6') || digits.startsWith('7'))) {
+  // Prepend 0 if 9 digits starting with 6, 7, or 5 (standard Moroccan format)
+  if (
+    digits.length === 9 &&
+    (digits.startsWith('6') || digits.startsWith('7') || digits.startsWith('5'))
+  ) {
     digits = `0${digits}`;
   }
 
@@ -113,7 +116,10 @@ export function normalizeShopPhoneNumber(rawPhone: string | null | undefined): s
  */
 export function formatPhoneForE164(rawPhone: string): string {
   const normalized = normalizeShopPhoneNumber(rawPhone);
-  if (normalized.startsWith('0') && (normalized.startsWith('06') || normalized.startsWith('07') || normalized.startsWith('05'))) {
+  if (
+    normalized.startsWith('0') &&
+    (normalized.startsWith('06') || normalized.startsWith('07') || normalized.startsWith('05'))
+  ) {
     return `+212${normalized.slice(1)}`;
   }
   if (rawPhone.trim().startsWith('+')) {
@@ -158,29 +164,56 @@ export function getShopDocRef(phoneNumber?: string): DocumentReference | null {
 /**
  * Get a Firestore subcollection reference under the shop: "shops/{phoneNumber}/{subcollectionName}"
  */
-export function getShopCollectionRef(subcollectionName: string, phoneNumber?: string): CollectionReference | null {
+export function getShopCollectionRef(
+  subcollectionName: string,
+  phoneNumber?: string
+): CollectionReference | null {
   const phone = phoneNumber ? normalizeShopPhoneNumber(phoneNumber) : getActiveShopPhoneNumber();
   if (!phone) return null;
   return collection(firestore, 'shops', phone, subcollectionName);
 }
 
 /**
- * Set up reCAPTCHA verifier for Phone Auth
+ * Set up reCAPTCHA verifier for Phone Auth.
+ * Creates a fresh child DOM element every time to prevent
+ * "reCAPTCHA has already been rendered in this element" errors.
  */
 export function setupRecaptchaVerifier(containerOrButtonId: string): RecaptchaVerifier {
   if ((window as any).recaptchaVerifier) {
     try {
       (window as any).recaptchaVerifier.clear();
     } catch {}
+    (window as any).recaptchaVerifier = null;
   }
+
+  if (typeof document !== 'undefined') {
+    let parent = document.getElementById(containerOrButtonId);
+    if (!parent) {
+      parent = document.createElement('div');
+      parent.id = containerOrButtonId;
+      parent.style.display = 'none';
+      document.body.appendChild(parent);
+    }
+    parent.innerHTML = '';
+    const freshChild = document.createElement('div');
+    freshChild.id = `${containerOrButtonId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    parent.appendChild(freshChild);
+
+    const verifier = new RecaptchaVerifier(auth, freshChild, {
+      size: 'invisible',
+      callback: () => {
+        // reCAPTCHA solved
+      },
+      'expired-callback': () => {
+        console.warn('reCAPTCHA expired');
+      },
+    });
+    (window as any).recaptchaVerifier = verifier;
+    return verifier;
+  }
+
   const verifier = new RecaptchaVerifier(auth, containerOrButtonId, {
     size: 'invisible',
-    callback: () => {
-      // reCAPTCHA solved
-    },
-    'expired-callback': () => {
-      console.warn('reCAPTCHA expired');
-    },
   });
   (window as any).recaptchaVerifier = verifier;
   return verifier;
@@ -271,7 +304,7 @@ export async function ensureFirebaseAuth(): Promise<User | null> {
           try {
             const cred = await signInAnonymously(auth);
             resolve(cred.user);
-          } catch (err) {
+          } catch {
             resolve(null);
           }
         }

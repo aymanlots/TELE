@@ -6,6 +6,7 @@ import {
   onSnapshot,
   Unsubscribe,
   getDoc,
+  getDocs,
 } from 'firebase/firestore';
 import {
   firestore,
@@ -154,6 +155,26 @@ export const TABLE_MAP: Record<string, { dexieTable: string; collectionName: str
   activity_logs: { dexieTable: 'activityLogs', collectionName: 'activity_logs' },
 };
 
+const SYNCABLE_COLLECTIONS = [
+  'products',
+  'customers',
+  'sales',
+  'repairs',
+  'spare_parts',
+  'warranties',
+  'sav_tickets',
+  'cash_closures',
+  'customer_payments',
+  'stock_movements',
+  'expenses',
+  'recurring_expenses',
+  'suppliers',
+  'supplier_payments',
+  'supplier_purchase_orders',
+  'activity_logs',
+  'settings',
+];
+
 /**
  * Push an item to Firestore under shops/{phoneNumber}/{collectionName}/{docId}
  */
@@ -284,6 +305,10 @@ export async function triggerCloudSync(): Promise<{ success: boolean }> {
   notifyListeners();
 
   try {
+    const phone = getActiveShopPhoneNumber();
+    if (phone) {
+      await pullShopDataFromFirestore(phone);
+    }
     await autoReconcileLocalDataToFirestore();
     const res = await processOutbox();
     currentSnapshot.lastError = res.errors > 0 ? 'Erreur lors de l’envoi' : null;
@@ -294,6 +319,57 @@ export async function triggerCloudSync(): Promise<{ success: boolean }> {
   } finally {
     currentSnapshot.isSyncing = false;
     await refreshSyncCounts();
+  }
+}
+
+/**
+ * Pull all existing documents from shops/{phoneNumber} and its subcollections into local Dexie
+ */
+export async function pullShopDataFromFirestore(customPhone?: string): Promise<void> {
+  const phone = customPhone ? normalizeShopPhoneNumber(customPhone) : getActiveShopPhoneNumber();
+  if (!phone) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  try {
+    await ensureFirebaseAuth();
+
+    // 1. Pull parent shop document: shops/{phone}
+    const shopDocRef = doc(firestore, 'shops', phone);
+    const shopSnap = await getDoc(shopDocRef);
+    if (shopSnap.exists()) {
+      const shopData = shopSnap.data();
+      if (shopData.storeName || shopData.ownerName) {
+        const current = await db.settings.get('store_settings');
+        const merged = {
+          ...(current?.value || {}),
+          storeName: shopData.storeName || current?.value?.storeName,
+          adminName: shopData.ownerName || current?.value?.adminName,
+          adminPhone: phone,
+          phone,
+          shopId: phone,
+        };
+        await db.settings.put({
+          key: 'store_settings',
+          value: merged,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    // 2. Pull all subcollections under shops/{phone}/{colName}
+    for (const colName of SYNCABLE_COLLECTIONS) {
+      try {
+        const subColRef = collection(firestore, 'shops', phone, colName);
+        const snap = await getDocs(subColRef);
+        for (const docSnap of snap.docs) {
+          await applyRemoteChange(colName, docSnap.data());
+        }
+      } catch (colErr) {
+        console.warn(`Notice pulling subcollection shops/${phone}/${colName}:`, colErr);
+      }
+    }
+  } catch (err) {
+    console.warn('Error pulling shop data from Firestore:', err);
   }
 }
 
@@ -312,26 +388,6 @@ export function startRealtimeSync(customPhone?: string): () => void {
     return stopRealtimeSync;
   }
 
-  const syncableCollections = [
-    'products',
-    'customers',
-    'sales',
-    'repairs',
-    'spare_parts',
-    'warranties',
-    'sav_tickets',
-    'cash_closures',
-    'customer_payments',
-    'stock_movements',
-    'expenses',
-    'recurring_expenses',
-    'suppliers',
-    'supplier_payments',
-    'supplier_purchase_orders',
-    'activity_logs',
-    'settings',
-  ];
-
   ensureFirebaseAuth().then(() => {
     // 1. Listen to parent shop document: shops/{phoneNumber}
     try {
@@ -347,6 +403,7 @@ export function startRealtimeSync(customPhone?: string): () => void {
               adminName: shopData.ownerName || current?.value?.adminName,
               adminPhone: phone,
               phone,
+              shopId: phone,
             };
             await db.settings.put({
               key: 'store_settings',
@@ -360,7 +417,7 @@ export function startRealtimeSync(customPhone?: string): () => void {
     } catch {}
 
     // 2. Listen to all subcollections: shops/{phoneNumber}/{subcollection}
-    for (const colName of syncableCollections) {
+    for (const colName of SYNCABLE_COLLECTIONS) {
       try {
         const subColRef = collection(firestore, 'shops', phone, colName);
 
@@ -406,21 +463,16 @@ export function stopRealtimeSync(): void {
 }
 
 /**
- * Apply a remote record into local Dexie
+ * Apply a remote record into local Dexie safely (handling unique constraints & timestamps)
  */
 async function applyRemoteChange(collectionName: string, remoteData: any): Promise<void> {
+  if (!remoteData) return;
   const mapEntry = Object.values(TABLE_MAP).find((m) => m.collectionName === collectionName);
   if (!mapEntry) return;
 
   const tableName = mapEntry.dexieTable;
   const table = (db as any)[tableName];
   if (!table) return;
-
-  // Do not re-apply if originated on this exact device to avoid echo
-  const thisDevice = getDeviceId();
-  if (remoteData.device_id === thisDevice) {
-    return;
-  }
 
   // Handle settings table
   if (tableName === 'settings') {
@@ -456,13 +508,33 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
   if (!uuid) return;
 
   try {
-    const existing = await table.where('uuid').equals(uuid).first();
+    let existing = await table.where('uuid').equals(uuid).first();
+
+    // Prevent unique index ConstraintError on &bonNumber, &repairNumber, or &date
+    if (!existing) {
+      if (
+        (collectionName === 'sales' || collectionName === 'supplier_purchase_orders') &&
+        remoteData.bonNumber
+      ) {
+        existing = await table.where('bonNumber').equals(remoteData.bonNumber).first();
+      } else if (collectionName === 'repairs' && remoteData.repairNumber) {
+        existing = await table.where('repairNumber').equals(remoteData.repairNumber).first();
+      } else if (collectionName === 'cash_closures' && remoteData.date) {
+        existing = await table.where('date').equals(remoteData.date).first();
+      }
+    }
+
     const { id: _remoteId, ...recordData } = remoteData;
 
     if (!existing) {
       // Remote insert into Dexie
       await table.add(recordData);
     } else {
+      // Skip if exact same timestamp already applied
+      if (existing.updated_at && existing.updated_at === remoteData.updated_at) {
+        return;
+      }
+
       if (INSERT_ONLY_TABLES.has(collectionName) && !remoteData.deleted_at) {
         return;
       }
@@ -678,20 +750,22 @@ export function initFirebaseSync(): void {
   // 1. Start real-time sync listeners on shops/{phoneNumber}
   startRealtimeSync(phone);
 
-  // 2. Process outbox queue immediately
-  processOutbox();
+  // 2. Pull existing cloud records for shops/{phoneNumber}, then reconcile & process outbox
+  pullShopDataFromFirestore(phone).then(() => {
+    processOutbox();
+    autoReconcileLocalDataToFirestore();
+  });
 
-  // 3. Automatically reconcile local database with Firestore
-  autoReconcileLocalDataToFirestore();
-
-  // 4. Automatic online / offline network listener
+  // 3. Automatic online / offline network listener
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
       currentSnapshot.status = 'pending';
       notifyListeners();
       startRealtimeSync();
-      autoReconcileLocalDataToFirestore();
-      processOutbox();
+      pullShopDataFromFirestore().then(() => {
+        autoReconcileLocalDataToFirestore();
+        processOutbox();
+      });
     });
 
     window.addEventListener('offline', () => {
