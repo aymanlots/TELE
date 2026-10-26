@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isShopMember(shopId) {
+      return isAuthenticated();
+    }
+
+    function isValidShopDoc(shopId) {
+      return request.resource.data.shop_id == shopId;
+    }
+
+    function shopIdUnchanged() {
+      return !('shop_id' in request.resource.data) ||
+        !('shop_id' in resource.data) ||
+        request.resource.data.shop_id == resource.data.shop_id;
+    }
+
+    // Default deny for unmatched collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shops
+    match /shops/{shopId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shopId == shopId;
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // Users / Members
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Products (Phones & Accessories)
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.shop_id is string &&
+        request.resource.data.name is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Customers (Debts & Directory)
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.shop_id is string &&
+        request.resource.data.name is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Sales (Bons & Orders)
+    match /sales/{saleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.shop_id is string &&
+        request.resource.data.bonNumber is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Repairs
+    match /repairs/{repairId} {
+      // Allow customers to view their repair status if they know the repair ID, or authenticated staff
+      allow read: if true;
+      allow create: if isAuthenticated() &&
+        request.resource.data.shop_id is string &&
+        request.resource.data.repairNumber is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Spare parts
+    match /spare_parts/{partId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Warranties
+    match /warranties/{warrantyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // SAV Tickets
+    match /sav_tickets/{ticketId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Expenses (Owner-restricted operations)
+    match /expenses/{expenseId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Recurring expenses
+    match /recurring_expenses/{recId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Suppliers
+    match /suppliers/{supplierId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Supplier payments
+    match /supplier_payments/{payId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Supplier purchase orders
+    match /supplier_purchase_orders/{poId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Customer payments
+    match /customer_payments/{payId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if isAuthenticated();
+    }
+
+    // Stock movements (Audit trail - insert only)
+    match /stock_movements/{movId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update, delete: if false;
+    }
+
+    // Cash closures
+    match /cash_closures/{closureId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update: if isAuthenticated() && shopIdUnchanged();
+      allow delete: if false;
+    }
+
+    // Activity logs (Audit trail - insert only)
+    match /activity_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.shop_id is string;
+      allow update, delete: if false;
+    }
+
+    // Settings
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}

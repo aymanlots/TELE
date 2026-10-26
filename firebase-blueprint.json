@@ -1,0 +1,284 @@
+{
+  "version": "1.0.0",
+  "entities": {
+    "shops": {
+      "collection": "shops",
+      "description": "Store entity containing shop branding, subscription license status, and store metadata.",
+      "fields": {
+        "shopId": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "phone": { "type": "string", "required": false },
+        "address": { "type": "string", "required": false },
+        "planTier": { "type": "string", "required": true },
+        "subscriptionStatus": { "type": "string", "required": true },
+        "subscriptionEndsAt": { "type": "string", "required": true },
+        "licenseKey": { "type": "string", "required": false },
+        "ownerId": { "type": "string", "required": true },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
+    },
+    "users": {
+      "collection": "users",
+      "description": "User profiles and shop roles (owner, manager, cashier, technician, employee).",
+      "fields": {
+        "uid": { "type": "string", "required": true },
+        "shopId": { "type": "string", "required": true },
+        "fullName": { "type": "string", "required": true },
+        "email": { "type": "string", "required": false },
+        "phone": { "type": "string", "required": false },
+        "role": { "type": "string", "required": true },
+        "active": { "type": "boolean", "required": true },
+        "createdAt": { "type": "string", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
+    },
+    "products": {
+      "collection": "products",
+      "description": "Phones, accessories, and stock items.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "category": { "type": "string", "required": true },
+        "brand": { "type": "string", "required": false },
+        "model": { "type": "string", "required": false },
+        "barcode": { "type": "string", "required": false },
+        "buyPrice": { "type": "number", "required": true },
+        "sellPrice": { "type": "number", "required": true },
+        "quantity": { "type": "number", "required": true },
+        "imeiList": { "type": "array", "required": false },
+        "minAlertQty": { "type": "number", "required": false },
+        "device_id": { "type": "string", "required": false },
+        "updated_at": { "type": "string", "required": true },
+        "deleted_at": { "type": "string", "required": false }
+      }
+    },
+    "customers": {
+      "collection": "customers",
+      "description": "Customer profiles and credit tracking.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "phone": { "type": "string", "required": false },
+        "CIN": { "type": "string", "required": false },
+        "customerType": { "type": "string", "required": false },
+        "creditBalance": { "type": "number", "required": false },
+        "updated_at": { "type": "string", "required": true },
+        "deleted_at": { "type": "string", "required": false }
+      }
+    },
+    "sales": {
+      "collection": "sales",
+      "description": "Sales records, bon numbers, items sold, and warranty details.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "bonNumber": { "type": "string", "required": true },
+        "customerId": { "type": "number", "required": false },
+        "customerUuid": { "type": "string", "required": false },
+        "customerName": { "type": "string", "required": false },
+        "date": { "type": "string", "required": true },
+        "items": { "type": "array", "required": true },
+        "totalAmount": { "type": "number", "required": true },
+        "paidAmount": { "type": "number", "required": true },
+        "remainingAmount": { "type": "number", "required": true },
+        "paymentType": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true },
+        "deleted_at": { "type": "string", "required": false }
+      }
+    },
+    "repairs": {
+      "collection": "repairs",
+      "description": "Phone repair tickets, diagnosis, parts used, and delivery tracking.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "repairNumber": { "type": "string", "required": true },
+        "customerName": { "type": "string", "required": true },
+        "customerPhone": { "type": "string", "required": false },
+        "brand": { "type": "string", "required": true },
+        "model": { "type": "string", "required": true },
+        "imei": { "type": "string", "required": false },
+        "issueDescription": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true },
+        "costPrice": { "type": "number", "required": true },
+        "totalPrice": { "type": "number", "required": true },
+        "paidAmount": { "type": "number", "required": true },
+        "intakeDate": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true },
+        "deleted_at": { "type": "string", "required": false }
+      }
+    },
+    "spare_parts": {
+      "collection": "spare_parts",
+      "description": "Repair spare parts stock (screens, batteries, charging ports).",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "compatibleBrand": { "type": "string", "required": false },
+        "compatibleModel": { "type": "string", "required": false },
+        "quantity": { "type": "number", "required": true },
+        "buyPrice": { "type": "number", "required": true },
+        "sellPrice": { "type": "number", "required": true },
+        "updated_at": { "type": "string", "required": true },
+        "deleted_at": { "type": "string", "required": false }
+      }
+    },
+    "warranties": {
+      "collection": "warranties",
+      "description": "Warranty certificates linked to sales and phones.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "bonNumber": { "type": "string", "required": true },
+        "imei": { "type": "string", "required": false },
+        "startDate": { "type": "string", "required": true },
+        "endDate": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "sav_tickets": {
+      "collection": "sav_tickets",
+      "description": "After-sale service and returned warranty issues.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "bonNumber": { "type": "string", "required": false },
+        "imei": { "type": "string", "required": false },
+        "problem": { "type": "string", "required": true },
+        "status": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "expenses": {
+      "collection": "expenses",
+      "description": "Store operational expenses (rent, electricity, salaries, supplies).",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "category": { "type": "string", "required": true },
+        "amount": { "type": "number", "required": true },
+        "date": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "recurring_expenses": {
+      "collection": "recurring_expenses",
+      "description": "Scheduled monthly expenses.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "category": { "type": "string", "required": true },
+        "amount": { "type": "number", "required": true },
+        "dayOfMonth": { "type": "number", "required": true },
+        "isActive": { "type": "boolean", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "suppliers": {
+      "collection": "suppliers",
+      "description": "Suppliers database and creditor debts.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true },
+        "phone": { "type": "string", "required": false },
+        "balance": { "type": "number", "required": false },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "supplier_payments": {
+      "collection": "supplier_payments",
+      "description": "Payments made to suppliers.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "supplierId": { "type": "number", "required": false },
+        "amount": { "type": "number", "required": true },
+        "date": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "supplier_purchase_orders": {
+      "collection": "supplier_purchase_orders",
+      "description": "Supplier purchase orders / Bons d'achat.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "bonNumber": { "type": "string", "required": true },
+        "supplierId": { "type": "number", "required": false },
+        "totalAmount": { "type": "number", "required": true },
+        "date": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "customer_payments": {
+      "collection": "customer_payments",
+      "description": "Customer payments for credit sales.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "customerId": { "type": "number", "required": false },
+        "amount": { "type": "number", "required": true },
+        "date": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "stock_movements": {
+      "collection": "stock_movements",
+      "description": "Audit trail for every stock delta.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "productId": { "type": "number", "required": true },
+        "productName": { "type": "string", "required": true },
+        "type": { "type": "string", "required": true },
+        "quantityDelta": { "type": "number", "required": true },
+        "date": { "type": "string", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "cash_closures": {
+      "collection": "cash_closures",
+      "description": "End-of-day register closure records.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "date": { "type": "string", "required": true },
+        "closingBalance": { "type": "number", "required": true },
+        "closedBy": { "type": "string", "required": false },
+        "updated_at": { "type": "string", "required": true }
+      }
+    },
+    "activity_logs": {
+      "collection": "activity_logs",
+      "description": "Security audit logs and operator actions.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "action": { "type": "string", "required": true },
+        "entityType": { "type": "string", "required": true },
+        "details": { "type": "string", "required": false },
+        "userRole": { "type": "string", "required": true },
+        "userName": { "type": "string", "required": true },
+        "createdAt": { "type": "string", "required": true }
+      }
+    },
+    "settings": {
+      "collection": "settings",
+      "description": "Shop shared configurations.",
+      "fields": {
+        "uuid": { "type": "string", "required": true },
+        "shop_id": { "type": "string", "required": true },
+        "key": { "type": "string", "required": true },
+        "value": { "type": "any", "required": true },
+        "updated_at": { "type": "string", "required": true }
+      }
+    }
+  }
+}

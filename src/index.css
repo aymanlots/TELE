@@ -1,0 +1,552 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Cairo", "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-arabic: "Cairo", -apple-system, BlinkMacSystemFont, "SF Pro AR", "SF Arabic", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "JetBrains Mono", monospace;
+
+  /* Luxury Gold Spectrum */
+  --color-gold-50: #fefdf8;
+  --color-gold-100: #fdfae9;
+  --color-gold-200: #faf2c5;
+  --color-gold-300: #f6e696;
+  --color-gold-400: #F5D76E;
+  --color-gold-500: #D4AF37;
+  --color-gold-600: #b99326;
+  --color-gold-700: #93711b;
+  --color-gold-800: #75571a;
+  --color-gold-900: #62481b;
+
+  --color-amber-100: #fdfae9;
+  --color-amber-200: #faf2c5;
+  --color-amber-300: #f6e696;
+  --color-amber-400: #F5D76E;
+  --color-amber-500: #D4AF37;
+  --color-amber-600: #b99326;
+  --color-amber-700: #93711b;
+
+  --color-neutral-950: var(--neutral-950);
+  --color-neutral-900: var(--neutral-900);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-50: var(--neutral-50);
+}
+
+/* ========================================================
+   THEME VARIABLES: NIGHT (DARK) vs DAY (LIGHT)
+   ======================================================== */
+:root,
+html.dark {
+  color-scheme: dark;
+  --neutral-950: #07070A;
+  --neutral-900: #0E0E14;
+  --neutral-800: #181822;
+  --neutral-700: #2C2C3C;
+  --neutral-600: #4E4E68;
+  --neutral-500: #8E8EAE;
+  --neutral-400: #BCBCD6;
+  --neutral-300: #E4E4F4;
+  --neutral-200: #F6F6FC;
+  --neutral-100: #FFFFFF;
+  --neutral-50: #FFFFFF;
+}
+
+html.light {
+  color-scheme: light;
+  --neutral-950: #F7F4EC;
+  --neutral-900: #FFFFFF;
+  --neutral-800: #EAE3D2;
+  --neutral-700: #D8CEB8;
+  --neutral-600: #78716C;
+  --neutral-500: #57534E;
+  --neutral-400: #44403C;
+  --neutral-300: #292524;
+  --neutral-200: #1C1917;
+  --neutral-100: #0F0E0C;
+  --neutral-50: #09090B;
+}
+
+html {
+  background-image: url('/shop-bg.jpg'), url('/assets/aistudio/image_9081bf7b.png');
+  background-size: cover;
+  background-attachment: fixed;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-color: #090806;
+  color: #FFFFFF;
+  scroll-behavior: smooth;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.light {
+  background-color: #FAF7F0;
+  color: #181512;
+}
+
+body {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: inherit;
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-family: var(--font-arabic), var(--font-sans);
+}
+
+html[dir="rtl"] {
+  font-family: var(--font-arabic), var(--font-sans);
+  direction: rtl;
+}
+
+html[dir="ltr"] {
+  font-family: var(--font-sans);
+  direction: ltr;
+}
+
+/* ========================================================
+   1. FIXED LUXURY PHONE SHOP BACKGROUND + OVERLAY
+   ======================================================== */
+.app-fixed-viewport-bg {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  z-index: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  background-image: url('/shop-bg.jpg'), url('/assets/aistudio/image_9081bf7b.png') !important;
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+}
+
+.app-fixed-viewport-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.38);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+html.light .app-fixed-viewport-bg::after {
+  background-color: rgba(250, 247, 240, 0.90);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.bg-\[\#0B0B0F\] {
+  background-color: transparent !important;
+}
+
+/* ========================================================
+   2. DARK MODE CARDS & CONTAINERS (DEFAULT / html.dark)
+   ======================================================== */
+html:not(.light) div.bg-neutral-900,
+html:not(.light) section.bg-neutral-900,
+html:not(.light) article.bg-neutral-900,
+html:not(.light) form.bg-neutral-900,
+html:not(.light) [class*="bg-neutral-900/"],
+html:not(.light) .bg-\[\#15151C\] {
+  border-radius: 20px !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+  backdrop-filter: blur(20px) saturate(160%) !important;
+  border: 1px solid rgba(234, 179, 8, 0.24) !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.14),
+    inset 0 0 18px rgba(255, 215, 0, 0.05) !important;
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.22s ease !important;
+}
+
+html:not(.light) div.bg-neutral-950,
+html:not(.light) section.bg-neutral-950,
+html:not(.light) span.bg-neutral-950,
+html:not(.light) button.bg-neutral-950,
+html:not(.light) [class*="bg-neutral-950/"],
+html:not(.light) .bg-\[\#0E0E15\],
+html:not(.light) .bg-\[\#111118\] {
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.48) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(234, 179, 8, 0.20) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.10) !important;
+}
+
+/* ========================================================
+   3. DAY / LIGHT MODE (html.light) ACROSS ALL PAGES
+   ======================================================== */
+html.light div.bg-neutral-900,
+html.light section.bg-neutral-900,
+html.light article.bg-neutral-900,
+html.light form.bg-neutral-900,
+html.light nav.bg-neutral-900\/95,
+html.light [class*="bg-neutral-900"],
+html.light .bg-\[\#15151C\],
+html.light .bg-\[\#0a0a0a\],
+html.light .bg-black\/65,
+html.light .bg-black\/60,
+html.light .bg-black\/70,
+html.light .bg-black\/75,
+html.light .bg-black\/80 {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.95) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  border-color: rgba(202, 138, 4, 0.34) !important;
+  color: #181512;
+  box-shadow:
+    0 8px 26px rgba(146, 113, 27, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light div.bg-neutral-950,
+html.light section.bg-neutral-950,
+html.light span.bg-neutral-950,
+html.light button.bg-neutral-950,
+html.light label.bg-neutral-950,
+html.light [class*="bg-neutral-950"],
+html.light .bg-\[\#0E0E15\],
+html.light .bg-\[\#111118\],
+html.light .bg-white\/5,
+html.light .bg-white\/10,
+html.light .bg-white\/12,
+html.light .bg-white\/15 {
+  border-radius: 14px;
+  background: rgba(247, 243, 232, 0.95) !important;
+  border-color: rgba(202, 138, 4, 0.26) !important;
+  color: #181512;
+  box-shadow: inset 0 1px 2px rgba(146, 113, 27, 0.06) !important;
+}
+
+/* Dashboard Standalone Emerald Profit Card in Light Mode */
+html.light .from-emerald-950\/75 {
+  background: linear-gradient(135deg, #ECFDF5 0%, #FFFFFF 100%) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.12) !important;
+}
+
+html.light .bg-emerald-950\/30 {
+  background: #ECFDF5 !important;
+  color: #065F46 !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+/* Light Mode Text Contrast Overrides */
+html.light .text-white:not(.bg-rose-500):not(.bg-red-500):not(.bg-emerald-500):not(.bg-green-500):not(.bg-blue-500),
+html.light .text-white\/95,
+html.light .text-white\/90,
+html.light .text-white\/85,
+html.light .text-white\/80 {
+  color: #181512 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+html.light .text-white\/75,
+html.light .text-white\/70,
+html.light .text-white\/65,
+html.light .text-white\/60,
+html.light .text-gray-200,
+html.light .text-gray-300,
+html.light .text-gray-400 {
+  color: #44403C !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+/* High-Contrast Royal Gold & Emerald Text in Light Mode */
+html.light .text-\[\#FFD700\],
+html.light .text-amber-300,
+html.light .text-amber-400,
+html.light .text-yellow-300,
+html.light .text-yellow-400 {
+  color: #9A6B05 !important;
+  filter: none !important;
+}
+
+html.light .text-\[\#22c55e\],
+html.light .text-\[\#4ADE80\],
+html.light .text-emerald-300,
+html.light .text-emerald-400 {
+  color: #15803D !important;
+  filter: none !important;
+}
+
+html.light .text-rose-300,
+html.light .text-rose-400 {
+  color: #BE123C !important;
+}
+
+html.light .border-white\/10,
+html.light .border-white\/15,
+html.light .border-white\/20,
+html.light .border-white\/25 {
+  border-color: rgba(202, 138, 4, 0.22) !important;
+}
+
+html.light .divide-white\/10 > :not(:last-child) {
+  border-color: rgba(202, 138, 4, 0.18) !important;
+}
+
+/* Gold Borders Across All Pages */
+.border-neutral-800,
+.border-neutral-700,
+[class*="border-neutral-800/"],
+[class*="border-neutral-700/"] {
+  border-color: rgba(234, 179, 8, 0.22) !important;
+}
+
+.divide-neutral-800 > :not(:last-child),
+.divide-neutral-700 > :not(:last-child) {
+  border-color: rgba(234, 179, 8, 0.16) !important;
+}
+
+/* ========================================================
+   4. INPUTS, SELECTS & TEXTAREAS (DARK vs LIGHT)
+   ======================================================== */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input[type="search"],
+input[type="url"],
+select,
+textarea {
+  border-radius: 14px !important;
+  background: rgba(0, 0, 0, 0.55) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(234, 179, 8, 0.25) !important;
+  color: #FFFFFF !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+}
+
+html.light input[type="text"],
+html.light input[type="number"],
+html.light input[type="date"],
+html.light input[type="email"],
+html.light input[type="password"],
+html.light input[type="tel"],
+html.light input[type="search"],
+html.light input[type="url"],
+html.light select,
+html.light textarea {
+  background: #FAF8F2 !important;
+  border: 1px solid rgba(180, 130, 15, 0.36) !important;
+  color: #181512 !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #78716C !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(255, 215, 0, 0.75) !important;
+  box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.22) !important;
+  outline: none !important;
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+  border-color: #B47B08 !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25) !important;
+}
+
+select option {
+  background-color: #111115 !important;
+  color: #FFFFFF !important;
+}
+
+html.light select option {
+  background-color: #FFFFFF !important;
+  color: #181512 !important;
+}
+
+/* ========================================================
+   5. BUTTONS & TABLES (DARK vs LIGHT)
+   ======================================================== */
+button.bg-amber-500,
+.bg-amber-500 {
+  background: linear-gradient(90deg, #EAB308 0%, #FACC15 50%, #F59E0B 100%) !important;
+  color: #09090B !important;
+  font-weight: 800 !important;
+  border: 1px solid rgba(255, 248, 200, 0.75) !important;
+  box-shadow:
+    0 6px 20px rgba(234, 179, 8, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8) !important;
+}
+
+button.bg-amber-500:hover,
+.bg-amber-500:hover {
+  transform: scale(1.02);
+  box-shadow:
+    0 8px 25px rgba(234, 179, 8, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9) !important;
+}
+
+button.bg-neutral-800,
+.bg-neutral-800,
+[class*="bg-neutral-800/"] {
+  background: rgba(0, 0, 0, 0.55) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(234, 179, 8, 0.25) !important;
+}
+
+html.light button.bg-neutral-800,
+html.light .bg-neutral-800,
+html.light [class*="bg-neutral-800/"] {
+  background: #F2EDE0 !important;
+  border: 1px solid rgba(180, 130, 15, 0.32) !important;
+  color: #181512 !important;
+}
+
+button.bg-neutral-800:hover,
+.bg-neutral-800:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 215, 0, 0.5) !important;
+}
+
+html.light button.bg-neutral-800:hover,
+html.light .bg-neutral-800:hover {
+  background: #E8DFC8 !important;
+  border-color: #B47B08 !important;
+}
+
+/* Tables across POS, Stock, Bons, Repairs, Customers, Reports */
+table thead {
+  background: rgba(0, 0, 0, 0.6) !important;
+  border-bottom: 1px solid rgba(234, 179, 8, 0.28) !important;
+}
+
+table thead th {
+  color: #FFD700 !important;
+  font-weight: 800 !important;
+}
+
+table tbody tr:hover {
+  background-color: rgba(255, 215, 0, 0.08) !important;
+}
+
+html.light table thead {
+  background: #F4EFE2 !important;
+  border-bottom: 1px solid rgba(180, 130, 15, 0.35) !important;
+}
+
+html.light table thead th {
+  color: #855806 !important;
+  font-weight: 800 !important;
+}
+
+html.light table tbody tr:hover {
+  background-color: rgba(234, 179, 8, 0.12) !important;
+}
+
+/* Gold Text Gradient */
+.text-gold-gradient {
+  background: linear-gradient(180deg, #FFF7C2 0%, #FFD700 50%, #FFB700 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+html.light .text-gold-gradient {
+  background: linear-gradient(180deg, #B47B08 0%, #855806 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.glow-gold {
+  filter: drop-shadow(0 4px 10px rgba(255, 200, 0, 0.45));
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+/* Custom Gold Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: rgba(180, 130, 15, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(234, 179, 8, 0.38);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 215, 0, 0.65);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body, html {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}
+
+@keyframes scanLaser {
+  0% {
+    top: 6%;
+    opacity: 0.7;
+  }
+  50% {
+    top: 90%;
+    opacity: 1;
+  }
+  100% {
+    top: 6%;
+    opacity: 0.7;
+  }
+}
+
+.animate-scan-laser {
+  animation: scanLaser 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}

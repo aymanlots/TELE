@@ -1,0 +1,7 @@
+{
+  "name": "Golden Shop Manager",
+  "description": "نظام احترافي لتسيير محلات الهواتف والإصلاح بالمغرب (نقطة البيع، المخزون، ورشة الصيانة، الكريديات، والربط السحابي)",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

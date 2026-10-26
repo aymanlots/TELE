@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5D061" />
+      <stop offset="50%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#AA7C11" />
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1E24" />
+      <stop offset="100%" stop-color="#0F0F12" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)" />
+  <!-- Outer Gold Border -->
+  <rect x="16" y="16" width="480" height="480" rx="92" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-opacity="0.8" />
+  <!-- Phone outline with notch & home indicator -->
+  <rect x="156" y="96" width="200" height="320" rx="36" fill="#141418" stroke="url(#goldGrad)" stroke-width="12" />
+  <rect x="216" y="112" width="80" height="8" rx="4" fill="url(#goldGrad)" />
+  <!-- Screen decorative tech lines & Golden Crown/Diamond mark -->
+  <path d="M256 160 L290 210 L256 260 L222 210 Z" fill="url(#goldGrad)" opacity="0.9" />
+  <circle cx="256" cy="210" r="14" fill="#141418" />
+  <!-- Lower bar -->
+  <rect x="226" y="380" width="60" height="6" rx="3" fill="url(#goldGrad)" opacity="0.6" />
+  <!-- Left/Right circuit sparkles -->
+  <circle cx="116" cy="256" r="12" fill="url(#goldGrad)" opacity="0.7" />
+  <circle cx="396" cy="256" r="12" fill="url(#goldGrad)" opacity="0.7" />
+  <path d="M128 256 L156 256" stroke="url(#goldGrad)" stroke-width="4" stroke-linecap="round" />
+  <path d="M356 256 L384 256" stroke="url(#goldGrad)" stroke-width="4" stroke-linecap="round" />
+</svg>

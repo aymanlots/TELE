@@ -1,0 +1,12 @@
+{
+  "projectId": "tele-projet",
+  "appId": "1:587504357080:web:835c7fc26da7398022d1ad",
+  "apiKey": "AIzaSyCpURd1UKza5i7tNOV1ulCX4-j7ZlCEh_0",
+  "authDomain": "tele-projet.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "tele-projet.firebasestorage.app",
+  "messagingSenderId": "587504357080",
+  "measurementId": "",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}
