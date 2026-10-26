@@ -88,26 +88,38 @@ export function setDevicePrefix(prefix: string): void {
   } catch {}
 }
 
+export const DEFAULT_SHARED_SHOP_ID = 'golden-shop-tele-projet';
+
 /**
- * Multi-Tenancy: Get or initialize the isolated shop_id UUID for this store
+ * Multi-Tenancy: Get or initialize the unified shop_id for this store.
+ * Defaults to DEFAULT_SHARED_SHOP_ID so Phone, PC and Tablet automatically connect
+ * to the exact same store without manual configuration.
  */
 export function getCurrentShopId(): string {
   try {
     let shopId = localStorage.getItem(SHOP_ID_STORAGE_KEY);
-    if (!shopId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(shopId)) {
-      shopId = generateUUID();
+    const isMigrated = localStorage.getItem('golden_shop_shared_id_migrated_v2');
+    if (!isMigrated) {
+      shopId = DEFAULT_SHARED_SHOP_ID;
+      localStorage.setItem(SHOP_ID_STORAGE_KEY, shopId);
+      localStorage.setItem('golden_shop_shared_id_migrated_v2', '1');
+    }
+    if (!shopId || shopId.trim() === '') {
+      shopId = DEFAULT_SHARED_SHOP_ID;
       localStorage.setItem(SHOP_ID_STORAGE_KEY, shopId);
     }
     return shopId;
   } catch {
-    return '00000000-0000-4000-8000-000000000000';
+    return DEFAULT_SHARED_SHOP_ID;
   }
 }
 
 export function setCurrentShopId(shopId: string): void {
   try {
-    if (shopId && shopId.trim()) {
-      localStorage.setItem(SHOP_ID_STORAGE_KEY, shopId.trim());
+    const clean = shopId?.trim();
+    if (clean) {
+      localStorage.setItem(SHOP_ID_STORAGE_KEY, clean);
+      localStorage.setItem('golden_shop_shared_id_migrated_v2', '1');
     }
   } catch {}
 }
@@ -3445,4 +3457,40 @@ export async function seedDemoData(): Promise<void> {
 export async function initializeDatabaseIfNeeded(): Promise<void> {
   await getStoreSettings();
   await processRecurringExpenses();
+
+  // One-time shop_id normalization so Phone & PC share identical store namespace
+  try {
+    const currentShopId = getCurrentShopId();
+    const normalized = localStorage.getItem('golden_shop_records_normalized_v2');
+    if (!normalized) {
+      const tables = [
+        db.products,
+        db.customers,
+        db.sales,
+        db.repairs,
+        db.spareParts,
+        db.warranties,
+        db.savTickets,
+        db.expenses,
+        db.recurringExpenses,
+        db.suppliers,
+        db.supplierPayments,
+        db.supplierPurchaseOrders,
+        db.customerPayments,
+        db.cashClosures,
+      ];
+      for (const tbl of tables) {
+        await (tbl as any).toCollection().modify((record: any) => {
+          if (!record.shop_id || record.shop_id !== currentShopId) {
+            record.shop_id = currentShopId;
+            record.updated_at = record.updated_at || new Date().toISOString();
+          }
+        });
+      }
+      localStorage.setItem('golden_shop_records_normalized_v2', '1');
+    }
+  } catch (err) {
+    console.warn('Normalization warning:', err);
+  }
 }
+

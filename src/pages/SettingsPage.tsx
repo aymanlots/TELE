@@ -39,7 +39,7 @@ import {
   subscribeSyncStatus as subscribeFirebaseSyncStatus,
   SyncStatusSnapshot as FirebaseSyncSnapshot,
 } from '../lib/firebaseSync';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { resolvedFirebaseConfig } from '../firebase';
 import {
   getStoreSettings,
   saveStoreSettings,
@@ -1516,15 +1516,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                     </div>
                     <div>
                       <div className="font-bold text-neutral-100 text-xs flex items-center gap-1.5">
-                        <span>{language === 'ar' ? 'الربط السحابي الفوري مع Firebase' : 'Synchronisation Cloud Firebase'}</span>
+                        <span>{language === 'ar' ? 'المزامنة السحابية الفورية (Firebase onSnapshot)' : 'Synchronisation Cloud Firebase'}</span>
                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          {language === 'ar' ? 'مفعل' : 'Actif'}
+                          {language === 'ar' ? 'أوتوماتيكية 100%' : '100% Automatique'}
                         </span>
                       </div>
                       <div className="text-[10px] text-neutral-400 flex items-center gap-1.5 mt-0.5">
                         <span>{language === 'ar' ? 'المشروع المرتبط:' : 'Projet Firebase :'}</span>
                         <span className="text-amber-400 font-mono font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                          {firebaseConfig.projectId}
+                          {resolvedFirebaseConfig.projectId}
                         </span>
                       </div>
                     </div>
@@ -1544,7 +1544,44 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${firebaseSyncSnap?.isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{language === 'ar' ? 'مزامنة الآن' : 'Synchroniser'}</span>
+                    <span>{language === 'ar' ? 'فحص ومزامنة' : 'Vérifier'}</span>
+                  </button>
+                </div>
+
+                {/* Automation explanation banner */}
+                <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-300 flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">
+                      {language === 'ar' ? 'المزامنة أوتوماتيكية بالكامل بدون الضغط على أي زر:' : 'Synchronisation 100% automatique :'}
+                    </span>{' '}
+                    <span>
+                      {language === 'ar'
+                        ? 'عندما تكون En Ligne، أي تعديل أو بيع أو إصلاح على الهاتف يظهر فوراً في البيسي بالثانية (onSnapshot). وإذا انقطع النت (Off Line)، يُحفظ محلياً ويُرفع تلقائياً عند عودة الويفي.'
+                        : 'En ligne : mise à jour instantanée entre téléphone et PC via onSnapshot. Hors ligne : sauvegarde locale puis synchronisation automatique au retour du réseau.'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Shared Shop ID / Linking Code */}
+                <div className="p-2.5 rounded-lg bg-neutral-900/90 border border-neutral-800 flex items-center justify-between gap-2 text-[11px]">
+                  <div>
+                    <span className="text-neutral-400 block text-[10px]">
+                      {language === 'ar' ? 'معرف ربط الأجهزة (Shop ID):' : 'Identifiant boutique (Shop ID) :'}
+                    </span>
+                    <span className="font-mono font-bold text-amber-300 text-xs">
+                      {getCurrentShopId()}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(getCurrentShopId());
+                      success(language === 'ar' ? 'تم نسخ رمز المحل.' : 'ID Boutique copié.');
+                    }}
+                    className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[10px] font-bold border border-neutral-700 cursor-pointer transition"
+                  >
+                    {language === 'ar' ? 'نسخ' : 'Copier'}
                   </button>
                 </div>
 
@@ -1617,14 +1654,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                             ? `جاري الرفع إلى Firebase: ${firebaseMigrationProgress}`
                             : `Envoi vers Firebase: ${firebaseMigrationProgress}`)
                         : (language === 'ar'
-                            ? '🚀 رفع ومزامنة جميع البيانات المحلية إلى Firebase'
-                            : '🚀 Migrer toutes les données locales vers Firebase')}
+                            ? '🚀 رفع كامل البيانات المحلية السابقة إلى Firebase (اختياري)'
+                            : '🚀 Forcer la migration complète vers Firebase')}
                     </span>
                   </button>
                   <p className="text-[10px] text-neutral-400 text-center mt-1.5">
                     {language === 'ar'
-                      ? 'يقوم برفع كل الهواتف والمبيعات والإصلاحات والكريديات المسجلة محلياً لتكون متوفرة فورياً على جميع أجهزة المحل.'
-                      : 'Synchronise tous vos produits, réparations, ventes et crédits sur le Cloud Firebase pour tous vos appareils.'}
+                      ? 'ملاحظة: العمليات الجديدة تطلع أوتوماتيكياً. هذا الزر لرفع السلع والبيانات القديمة دفعة واحدة إلى السحابة إن رغبت.'
+                      : 'Les nouvelles opérations se synchronisent déjà automatiquement en temps réel.'}
                   </p>
                 </div>
               </div>

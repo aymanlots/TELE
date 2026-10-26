@@ -3,21 +3,18 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  getDocs,
   query,
   where,
   onSnapshot,
   Unsubscribe,
 } from 'firebase/firestore';
-import { firestore, auth, ensureFirebaseAuth, handleFirestoreError, OperationType } from '../firebase';
+import { firestore, ensureFirebaseAuth, handleFirestoreError, OperationType } from '../firebase';
 import {
   db,
   getDeviceId,
   getCurrentUserContext,
   getCurrentShopId,
-  withSyncMetadata,
 } from '../db';
-import { UserRole } from '../types';
 
 export type SyncStatusState = 'synced' | 'pending' | 'offline' | 'error' | 'unconfigured';
 
@@ -33,7 +30,7 @@ export interface SyncStatusSnapshot {
 
 const LAST_SYNC_STORAGE_KEY = 'golden_shop_firebase_last_sync_at';
 
-// Owner-only collections that employees must NEVER push or pull
+// Owner-only collections that employees must not push
 const OWNER_ONLY_TABLES = new Set<string>([
   'expenses',
   'recurring_expenses',
@@ -162,14 +159,14 @@ async function pushItemToFirestore(
   if (!mapEntry) return;
 
   const shopId = payload?.shop_id || getCurrentShopId();
-  const docId = payload.uuid || payload.id?.toString() || payload.key;
+  // Document ID is universally the UUID (or key for settings)
+  const docId = payload.uuid || (payload.key ? String(payload.key) : null);
   if (!docId) return;
 
   const colRef = collection(firestore, mapEntry.collectionName);
   const docRef = doc(colRef, String(docId));
 
   if (operation === 'delete') {
-    // Soft delete if payload has deleted_at, else Firestore delete
     if (payload.deleted_at) {
       await setDoc(
         docRef,
@@ -186,26 +183,32 @@ async function pushItemToFirestore(
     return;
   }
 
-  // Sanitize payload for Firestore (remove undefined values)
+  // Sanitize payload for Firestore (remove undefined and local integer id)
   const cleanData: Record<string, any> = {};
   for (const [k, v] of Object.entries(payload)) {
+    // Strip local auto-increment integer ID to prevent collisions on other devices
+    if (k === 'id' && typeof v === 'number') continue;
     if (v !== undefined) {
       cleanData[k] = v;
     }
   }
+  cleanData.uuid = docId;
   cleanData.shop_id = shopId;
+  cleanData.device_id = payload.device_id || getDeviceId();
   cleanData.updated_at = cleanData.updated_at || new Date().toISOString();
 
   await setDoc(docRef, cleanData, { merge: true });
 }
 
 /**
- * Process Local Outbox Queue to Firestore
+ * Process Local Outbox Queue to Firestore (Automated)
  */
 let isPushingOutbox = false;
 export async function processOutbox(): Promise<{ success: boolean; processed: number; errors: number }> {
   if (isPushingOutbox) return { success: true, processed: 0, errors: 0 };
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    currentSnapshot.status = 'offline';
+    notifyListeners();
     return { success: false, processed: 0, errors: 0 };
   }
 
@@ -238,14 +241,13 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
         errors++;
         handleFirestoreError(err, OperationType.WRITE, item.table);
         console.warn(`Failed to push outbox item ${item.id} (${item.table}):`, err);
-        // Increment attempts
         if (item.id) {
           await db.outbox.update(item.id, {
             attempts: (item.attempts || 0) + 1,
             lastError: String(err),
           });
         }
-        break; // Stop batch on first critical failure
+        break; // Stop batch on first failure
       }
     }
 
@@ -264,7 +266,7 @@ export async function processOutbox(): Promise<{ success: boolean; processed: nu
 }
 
 /**
- * Trigger Cloud Sync (Process Outbox & Refresh)
+ * Trigger Cloud Sync (Manual force or re-sync)
  */
 export async function triggerCloudSync(): Promise<{ success: boolean }> {
   if (currentSnapshot.isSyncing) return { success: true };
@@ -285,7 +287,7 @@ export async function triggerCloudSync(): Promise<{ success: boolean }> {
 }
 
 /**
- * Real-time active listeners for multi-device synchronization
+ * Real-time active listeners for multi-device synchronization using onSnapshot
  */
 let activeUnsubscribers: Unsubscribe[] = [];
 
@@ -304,15 +306,23 @@ export function startRealtimeSync(): () => void {
     'warranties',
     'sav_tickets',
     'cash_closures',
+    'customer_payments',
+    'stock_movements',
   ];
 
   if (role !== 'employee') {
-    syncableCollections.push('expenses', 'recurring_expenses', 'suppliers', 'supplier_payments');
+    syncableCollections.push(
+      'expenses',
+      'recurring_expenses',
+      'suppliers',
+      'supplier_payments',
+      'supplier_purchase_orders',
+      'activity_logs',
+      'settings'
+    );
   }
 
-  ensureFirebaseAuth().then((user) => {
-    if (!user) return;
-
+  ensureFirebaseAuth().then(() => {
     for (const colName of syncableCollections) {
       try {
         const q = query(
@@ -322,13 +332,20 @@ export function startRealtimeSync(): () => void {
 
         const unsub = onSnapshot(
           q,
+          { includeMetadataChanges: false },
           async (snapshot) => {
             for (const change of snapshot.docChanges()) {
               if (change.type === 'added' || change.type === 'modified') {
                 const data = change.doc.data();
                 await applyRemoteChange(colName, data);
+              } else if (change.type === 'removed') {
+                const data = change.doc.data();
+                await applyRemoteChange(colName, { ...data, deleted_at: new Date().toISOString() });
               }
             }
+            currentSnapshot.status = 'synced';
+            currentSnapshot.lastError = null;
+            notifyListeners();
           },
           (err) => {
             handleFirestoreError(err, OperationType.LIST, colName);
@@ -355,7 +372,8 @@ export function stopRealtimeSync(): void {
 }
 
 /**
- * Apply a remote record into local Dexie if it is newer
+ * Apply a remote record into local Dexie
+ * Automatically adjusts local auto-increment integer IDs to prevent collisions
  */
 async function applyRemoteChange(collectionName: string, remoteData: any): Promise<void> {
   const mapEntry = Object.values(TABLE_MAP).find((m) => m.collectionName === collectionName);
@@ -366,23 +384,32 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
   if (!table) return;
 
   const uuid = remoteData.uuid;
-  if (!uuid) return;
+  const key = remoteData.key;
+  if (!uuid && !key) return;
 
-  // Don't overwrite if it was generated on this device within the last 5 seconds to prevent echo
+  // Do not re-apply if it originated on this very device (prevents echo loops)
   const thisDevice = getDeviceId();
   if (remoteData.device_id === thisDevice) {
     return;
   }
 
   try {
-    const existing = await table.where('uuid').equals(uuid).first();
+    let existing: any = null;
+    if (tableName === 'settings') {
+      existing = await table.get(key);
+    } else if (uuid) {
+      existing = await table.where('uuid').equals(uuid).first();
+    }
+
+    // Strip remote device's local integer id so Dexie creates its own clean local id
+    const { id: _remoteId, ...recordData } = remoteData;
 
     if (!existing) {
       // Remote insert
-      await table.add(remoteData);
+      await table.add(recordData);
     } else {
-      // If insert-only table, skip update
-      if (INSERT_ONLY_TABLES.has(collectionName)) {
+      // If insert-only table (like completed sales, logs), skip overwriting
+      if (INSERT_ONLY_TABLES.has(collectionName) && !remoteData.deleted_at) {
         return;
       }
 
@@ -392,8 +419,8 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
       if (remoteUpdated >= localUpdated) {
         await table.put({
           ...existing,
-          ...remoteData,
-          id: existing.id, // Preserve Dexie local auto-increment id
+          ...recordData,
+          id: existing.id, // Keep local integer primary key
         });
       }
     }
@@ -403,7 +430,7 @@ async function applyRemoteChange(collectionName: string, remoteData: any): Promi
 }
 
 /**
- * Full Migration: Push all local store records to Firebase Firestore in one click
+ * Migration helper: Push all local store records to Firebase Firestore in one click
  */
 export async function migrateAllLocalDataToFirestore(
   onProgress?: (progressPct: number, currentTable: string) => void
@@ -452,8 +479,10 @@ export async function migrateAllLocalDataToFirestore(
           const docRef = doc(firestore, item.collectionName, String(docUuid));
           const cleanRec: Record<string, any> = {};
           for (const [k, v] of Object.entries(rec)) {
+            if (k === 'id' && typeof v === 'number') continue;
             if (v !== undefined) cleanRec[k] = v;
           }
+          cleanRec.uuid = docUuid;
           cleanRec.shop_id = shopId;
           cleanRec.updated_at = cleanRec.updated_at || new Date().toISOString();
 
@@ -478,7 +507,7 @@ export async function migrateAllLocalDataToFirestore(
   }
 }
 
-// Background auto-sync interval
+// Background auto-sync interval (100% automated)
 let autoSyncInterval: any = null;
 
 export function initFirebaseSync(): void {
@@ -488,23 +517,30 @@ export function initFirebaseSync(): void {
   // Process outbox immediately
   processOutbox();
 
-  // Listen to window online event
+  // Automatic online / offline network listener
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
-      triggerCloudSync();
+      console.log('[Sync] Network connection restored. Auto-syncing outbox...');
+      currentSnapshot.status = 'pending';
+      notifyListeners();
+      // Re-initialize listeners and push queued offline items automatically
       startRealtimeSync();
+      processOutbox();
     });
+
     window.addEventListener('offline', () => {
-      refreshSyncCounts();
+      console.log('[Sync] Network offline. Storing operations locally.');
+      currentSnapshot.status = 'offline';
+      notifyListeners();
     });
 
     if (!autoSyncInterval) {
-      // Process outbox every 15 seconds if items are pending
+      // Auto-check and push pending items every 10 seconds if online
       autoSyncInterval = setInterval(() => {
         if (navigator.onLine) {
           processOutbox();
         }
-      }, 15000);
+      }, 10000);
     }
   }
 }

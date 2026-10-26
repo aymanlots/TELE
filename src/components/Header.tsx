@@ -16,8 +16,8 @@ import {
   subscribeSyncStatus,
   triggerCloudSync,
   SyncStatusSnapshot,
-  isSupabaseConfigured,
-} from '../lib/supabaseSync';
+} from '../lib/firebaseSync';
+import { Cloud, WifiOff } from 'lucide-react';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -149,19 +149,32 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Subtle Interactive Controls inside the Right Pill */}
           <div className="flex items-center gap-1.5 border-s border-white/20 ps-2">
-            {syncSnap && syncSnap.isSyncing && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (isSupabaseConfigured) triggerCloudSync();
-                  else if (can('manage_settings') && onNavigateSettings) onNavigateSettings();
-                }}
-                className="p-1 rounded-full text-amber-300 hover:bg-white/10 transition cursor-pointer"
-                title="Sync"
-              >
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => triggerCloudSync()}
+              className="p-1 rounded-full text-amber-300 hover:bg-white/10 transition cursor-pointer"
+              title={
+                syncSnap?.status === 'offline'
+                  ? 'أوفلاين (Offline) — التخزين محلي والمزامنة التلقائية عند الاتصال'
+                  : syncSnap?.isSyncing
+                  ? 'جاري المزامنة مع Firebase...'
+                  : syncSnap?.pendingCount
+                  ? `قيد الانتظار (${syncSnap.pendingCount}) — اضغط للإرسال الفوري`
+                  : 'متصل ومزامن تلقائياً وفورياً مع Firebase'
+              }
+            >
+              {syncSnap?.status === 'offline' ? (
+                <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+              ) : syncSnap?.isSyncing ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />
+              ) : (
+                <Cloud
+                  className={`w-3.5 h-3.5 ${
+                    syncSnap?.pendingCount ? 'text-amber-400 animate-pulse' : 'text-emerald-400'
+                  }`}
+                />
+              )}
+            </button>
 
             <button
               type="button"
