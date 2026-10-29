@@ -9,6 +9,32 @@ export default defineConfig(() => {
     plugins: [
       {
         name: 'vite-suppress-hmr-client-error',
+        transform(code, id) {
+          if (id.includes('vite/dist/client/client.mjs')) {
+            return code
+              .replace(
+                'let isConnected = !invokeableTransport.connect;',
+                'let isConnected = true;'
+              )
+              .replace(
+                'throw new SendBeforeConnectError("send was called before connect");',
+                'return;'
+              )
+              .replace(
+                'throw new SendBeforeConnectError("invoke was called before connect");',
+                'return;'
+              )
+              .replace(
+                'ws.send(JSON.stringify(data));',
+                'ws?.send?.(JSON.stringify(data));'
+              )
+              .replace(
+                'reject(/* @__PURE__ */ new Error("WebSocket closed without opened."));',
+                'resolve();'
+              );
+          }
+          return null;
+        },
         transformIndexHtml: {
           order: 'pre',
           handler() {
@@ -29,35 +55,50 @@ export default defineConfig(() => {
     };
     if (typeof window !== 'undefined' && window.WebSocket) {
       var NativeWS = window.WebSocket;
-      window.WebSocket = function(url, protocols) {
-        if (protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) || String(url).indexOf('vite-hmr') !== -1) {
+      var WrappedWS = function(url, protocols) {
+        if (
+          protocols === 'vite-hmr' ||
+          protocols === 'vite-ping' ||
+          (Array.isArray(protocols) && (protocols.indexOf('vite-hmr') !== -1 || protocols.indexOf('vite-ping') !== -1)) ||
+          String(url).indexOf('vite-hmr') !== -1 ||
+          String(url).indexOf('token=') !== -1
+        ) {
           return {
-            readyState: 3,
+            CONNECTING: 0,
+            OPEN: 1,
+            CLOSING: 2,
+            CLOSED: 3,
+            readyState: 1,
             url: String(url),
             bufferedAmount: 0,
             extensions: '',
-            protocol: 'vite-hmr',
+            protocol: typeof protocols === 'string' ? protocols : 'vite-hmr',
             binaryType: 'blob',
             onopen: null,
             onclose: null,
             onerror: null,
             onmessage: null,
             addEventListener: function(type, listener) {
-              if (type === 'close') {
+              if (type === 'open' && typeof listener === 'function') {
                 setTimeout(function() {
-                  try { listener({ wasClean: true, code: 1000, reason: 'HMR disabled' }); } catch (e) {}
+                  try { listener({ type: 'open' }); } catch (e) {}
                 }, 0);
               }
             },
             removeEventListener: function() {},
-            dispatchEvent: function() { return false; },
+            dispatchEvent: function() { return true; },
             send: function() {},
             close: function() {},
           };
         }
-        return new NativeWS(url, protocols);
+        return protocols !== undefined ? new NativeWS(url, protocols) : new NativeWS(url);
       };
-      window.WebSocket.prototype = NativeWS.prototype;
+      WrappedWS.prototype = NativeWS.prototype;
+      WrappedWS.CONNECTING = 0;
+      WrappedWS.OPEN = 1;
+      WrappedWS.CLOSING = 2;
+      WrappedWS.CLOSED = 3;
+      window.WebSocket = WrappedWS;
     }
   } catch (e) {}
 })();`,
