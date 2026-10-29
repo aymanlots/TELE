@@ -21,6 +21,8 @@ import {
   Settings2,
   Send,
   UserCheck,
+  Mail,
+  AtSign,
 } from 'lucide-react';
 import { useAccessAuth } from '../lib/accessAuth';
 import { useI18n } from '../i18n';
@@ -38,18 +40,29 @@ import {
   getLocalMetaCloudConfig,
   saveLocalMetaCloudConfig,
 } from '../lib/whatsappCloudApi';
+import {
+  sendEmailOtp,
+  verifyEmailOtp,
+  maskEmail,
+  isValidEmail,
+  isGmailAddress,
+} from '../lib/emailOtpService';
 import { openWhatsAppChat } from '../lib/whatsapp';
 import { ConfirmationResult } from 'firebase/auth';
 
 type Step = 'phone' | 'otp';
 type AuthMode = 'login' | 'register' | 'forgot';
+type RegisterStep = 'form' | 'verify_email';
 type ForgotStep = 'enter_phone' | 'verify_otp' | 'success';
+type RecoveryMethod = 'gmail' | 'whatsapp';
 
 export const LockScreen: React.FC = () => {
   const {
     loginWithPhone,
     sendWhatsAppRecoveryCode,
+    sendEmailRecoveryCode,
     resetAdminPasswordWithCode,
+    resetAdminPasswordWithEmailCode,
   } = useAccessAuth();
   const { language, setLanguage } = useI18n();
   const { theme, toggleTheme } = useTheme();
@@ -57,16 +70,28 @@ export const LockScreen: React.FC = () => {
 
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [step, setStep] = useState<Step>('phone');
+  const [registerStep, setRegisterStep] = useState<RegisterStep>('form');
   const [phoneNumber, setPhoneNumber] = useState<string>(() => getActiveShopPhoneNumber() || '');
   const [pinCode, setPinCode] = useState<string>('');
   const [showPin, setShowPin] = useState<boolean>(false);
   const [storeName, setStoreName] = useState<string>('');
+  const [gmailInput, setGmailInput] = useState<string>('');
+  const [registerOtpDigits, setRegisterOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [registerOtpExpiresAt, setRegisterOtpExpiresAt] = useState<number>(0);
+  const [registerExpirySecondsLeft, setRegisterExpirySecondsLeft] = useState<number>(0);
+  const [registerFallbackCode, setRegisterFallbackCode] = useState<string | null>(null);
+  const registerOtpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
   const [otpCode, setOtpCode] = useState<string>('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
-  // Forgot Password / Multi-User WhatsApp Cloud API OTP State
+  // Forgot Password: Gmail (Nodemailer) by default, or Meta WhatsApp Cloud API
+  const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('gmail');
   const [forgotStep, setForgotStep] = useState<ForgotStep>('enter_phone');
   const [recoveryPhone, setRecoveryPhone] = useState<string>('');
+  const [recoveryInput, setRecoveryInput] = useState<string>('');
+  const [resolvedAccountEmail, setResolvedAccountEmail] = useState<string>('');
+  const [maskedAccountEmail, setMaskedAccountEmail] = useState<string>('');
   const [maskedTargetPhone, setMaskedTargetPhone] = useState<string>('');
   const [resolvedUserName, setResolvedUserName] = useState<string>('');
   const [resolvedStoreName, setResolvedStoreName] = useState<string>('');
@@ -80,7 +105,7 @@ export const LockScreen: React.FC = () => {
   const [rateLimitCooldown, setRateLimitCooldown] = useState<number>(0);
   const [remainingWindowRequests, setRemainingWindowRequests] = useState<number | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<
-    'meta_cloud_api' | 'custom_gateway' | 'simulation' | null
+    'meta_cloud_api' | 'custom_gateway' | 'simulation' | 'nodemailer_gmail' | null
   >(null);
   const [apiWarning, setApiWarning] = useState<string | null>(null);
   const [fallbackOtpCode, setFallbackOtpCode] = useState<string | null>(null);
@@ -152,13 +177,25 @@ export const LockScreen: React.FC = () => {
     return () => clearInterval(timer);
   }, [otpExpiresAt, forgotStep]);
 
+  // Live 5-minute Countdown Timer for Registration Email OTP
+  useEffect(() => {
+    if (!registerOtpExpiresAt || registerStep !== 'verify_email') return;
+    const updateRemaining = () => {
+      const diff = Math.max(0, Math.ceil((registerOtpExpiresAt - Date.now()) / 1000));
+      setRegisterExpirySecondsLeft(diff);
+    };
+    updateRemaining();
+    const timer = setInterval(updateRemaining, 1000);
+    return () => clearInterval(timer);
+  }, [registerOtpExpiresAt, registerStep]);
+
   const formatMmSs = (totalSec: number): string => {
     const mins = Math.floor(totalSec / 60);
     const secs = totalSec % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  // Primary submit: Log in or Register by Phone Number + Secret PIN
+  // Primary submit: Log in or Register by Phone Number + Secret PIN (+ Mandatory Gmail)
   const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -184,13 +221,67 @@ export const LockScreen: React.FC = () => {
       return;
     }
 
-    if (authMode === 'register' && !storeName.trim()) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال اسم المحل التجاري لإنشاء حساب جديد'
-          : 'Veuillez saisir le nom de la boutique pour créer un compte'
-      );
-      return;
+    if (authMode === 'register') {
+      if (!storeName.trim()) {
+        setErrorMessage(
+          isAr
+            ? 'المرجو إدخال اسم المحل التجاري لإنشاء حساب جديد'
+            : 'Veuillez saisir le nom de la boutique pour créer un compte'
+        );
+        return;
+      }
+
+      // Mandatory Gmail validation on registration
+      const cleanGmail = gmailInput.trim().toLowerCase();
+      if (!cleanGmail) {
+        setErrorMessage(
+          isAr
+            ? 'المرجو إدخال بريد Gmail الخاص بك (إجباري لتأكيد وتفعيل الحساب لأول مرة)'
+            : 'Veuillez saisir votre adresse Gmail (obligatoire pour activer le compte)'
+        );
+        return;
+      }
+
+      if (!isValidEmail(cleanGmail)) {
+        setErrorMessage(
+          isAr
+            ? 'صيغة البريد الإلكتروني غير صحيحة (مثال: exemple@gmail.com)'
+            : 'Format Gmail non valide (ex: exemple@gmail.com)'
+        );
+        return;
+      }
+
+      // Send 6-digit OTP to the entered Gmail via Nodemailer
+      setIsLoading(true);
+      try {
+        const sendRes = await sendEmailOtp({
+          email: cleanGmail,
+          type: 'register_verification',
+          storeName: storeName.trim(),
+          phone: cleanPhone,
+        });
+
+        if (!sendRes.success) {
+          setErrorMessage(
+            sendRes.error || (isAr ? 'تعذر إرسال كود التحقق إلى Gmail.' : "Échec d'envoi du code.")
+          );
+          return;
+        }
+
+        setPhoneNumber(cleanPhone);
+        setRegisterOtpExpiresAt(sendRes.expiresAt || Date.now() + 5 * 60 * 1000);
+        setRegisterFallbackCode(sendRes.demoOtpCode || null);
+        setRegisterOtpDigits(['', '', '', '', '', '']);
+        setRegisterStep('verify_email');
+        setSuccessMessage(
+          isAr
+            ? `تم إرسال رمز التحقق (6 أرقام) عبر Nodemailer إلى بريدك Gmail: ${sendRes.maskedEmail}. صالح لمدة 5 دقائق.`
+            : `Code OTP à 6 chiffres envoyé via Nodemailer à votre Gmail : ${sendRes.maskedEmail} (valide 5 min).`
+        );
+        return;
+      } finally {
+        setIsLoading(false);
+      }
     }
 
     setIsLoading(true);
@@ -201,11 +292,163 @@ export const LockScreen: React.FC = () => {
         cleanPhone,
         storeName,
         cleanPin,
-        authMode === 'register' ? 'register' : 'login'
+        'login'
       );
       if (!loginRes.success) {
         setErrorMessage(loginRes.error || (isAr ? 'فشل تسجيل الدخول.' : 'Erreur de connexion.'));
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle 6-digit input for Registration Email OTP
+  const handleRegisterOtpDigitChange = (index: number, val: string) => {
+    const clean = val.replace(/\D/g, '');
+    if (!clean) {
+      const next = [...registerOtpDigits];
+      next[index] = '';
+      setRegisterOtpDigits(next);
+      return;
+    }
+
+    if (clean.length > 1) {
+      const chars = clean.slice(0, 6).split('');
+      const next = [...registerOtpDigits];
+      for (let i = 0; i < 6; i++) {
+        if (chars[i]) next[i] = chars[i];
+      }
+      setRegisterOtpDigits(next);
+      const focusIdx = Math.min(5, chars.length - 1);
+      registerOtpInputRefs.current[focusIdx]?.focus();
+      return;
+    }
+
+    const next = [...registerOtpDigits];
+    next[index] = clean;
+    setRegisterOtpDigits(next);
+
+    if (index < 5) {
+      registerOtpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleRegisterOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !registerOtpDigits[index] && index > 0) {
+      registerOtpInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  // Verify Registration Email OTP & Unlock Account
+  const handleVerifyRegisterEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const code = registerOtpDigits.join('').trim();
+    if (code.length !== 6) {
+      setErrorMessage(
+        isAr
+          ? 'المرجو إدخال رمز التحقق كاملاً المكون من 6 أرقام المرسل إلى بريدك.'
+          : 'Veuillez saisir les 6 chiffres du code OTP reçu sur votre Gmail.'
+      );
+      return;
+    }
+
+    if (registerExpirySecondsLeft <= 0) {
+      setErrorMessage(
+        isAr
+          ? 'انتهت صلاحية رمز التحقق (صالح لمدة 5 دقائق فقط). اضغط على إعادة الإرسال.'
+          : 'Le code OTP a expiré (5 min). Veuillez demander un renvoi.'
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const verifyRes = await verifyEmailOtp({
+        email: gmailInput.trim().toLowerCase(),
+        otp: code,
+        type: 'register_verification',
+      });
+
+      if (!verifyRes.success) {
+        setErrorMessage(
+          verifyRes.error || (isAr ? 'رمز التحقق غير صحيح.' : 'Code OTP incorrect.')
+        );
+        return;
+      }
+
+      // Verification success: register account with verified Gmail
+      const loginRes = await loginWithPhone(
+        phoneNumber,
+        storeName,
+        pinCode,
+        'register',
+        gmailInput.trim().toLowerCase(),
+        true
+      );
+
+      if (!loginRes.success) {
+        setErrorMessage(loginRes.error || (isAr ? 'فشل إتمام التسجيل.' : "Erreur d'inscription."));
+        return;
+      }
+
+      setSuccessMessage(
+        isAr
+          ? 'تم تأكيد بريدك Gmail وتفعيل حساب محلك بنجاح!'
+          : 'Votre compte a été vérifié et activé avec succès !'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Forgot Password: Request 6-digit OTP via Registered Gmail (Nodemailer)
+  const handleRequestEmailResetOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setApiWarning(null);
+
+    const inputVal = (recoveryInput || recoveryPhone || phoneNumber || '').trim();
+    if (!inputVal) {
+      setErrorMessage(
+        isAr
+          ? 'المرجو إدخال رقم الهاتف أو بريد Gmail المسجل'
+          : 'Veuillez saisir votre téléphone ou adresse Gmail'
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await sendEmailRecoveryCode(inputVal);
+      if (!res.success) {
+        setErrorMessage(
+          res.error || (isAr ? 'تعذر إرسال كود الاسترجاع إلى Gmail' : "Impossible d'envoyer le code")
+        );
+        return;
+      }
+
+      const emailFound = res.account?.email || (inputVal.includes('@') ? inputVal : '');
+      const maskedFound = res.account?.maskedEmail || maskEmail(emailFound);
+      setResolvedAccountEmail(emailFound);
+      setMaskedAccountEmail(maskedFound);
+      setResolvedUserName(res.account?.userName || (isAr ? 'المدير' : 'Gérant'));
+      setResolvedStoreName(res.account?.storeName || storeName || (isAr ? 'المحل الذهبي' : 'Boutique'));
+      setOtpExpiresAt(res.expiresAt || Date.now() + 5 * 60 * 1000);
+      setDeliveryMethod(res.deliveryMethod || 'nodemailer_gmail');
+      setFallbackOtpCode(res.demoOtpCode || null);
+      setOtpDigits(['', '', '', '', '', '']);
+      setForgotStep('verify_otp');
+      setRecoveryMethod('gmail');
+
+      setSuccessMessage(
+        isAr
+          ? `تم إرسال كود استرجاع كلمة المرور (6 أرقام) مباشرة إلى بريدك Gmail المسجل: ${maskedFound}. صالح لمدة 5 دقائق.`
+          : `Code OTP (6 chiffres) envoyé directement à votre Gmail : ${maskedFound} (valide 5 min).`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -376,11 +619,21 @@ export const LockScreen: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const res = await resetAdminPasswordWithCode(
-        combinedOtp,
-        cleanNewPass,
-        recoveryPhone || phoneNumber
-      );
+      let res: { success: boolean; error?: string };
+      if (recoveryMethod === 'gmail') {
+        res = await resetAdminPasswordWithEmailCode(
+          resolvedAccountEmail || recoveryInput || recoveryPhone || phoneNumber,
+          combinedOtp,
+          cleanNewPass,
+          recoveryPhone || phoneNumber
+        );
+      } else {
+        res = await resetAdminPasswordWithCode(
+          combinedOtp,
+          cleanNewPass,
+          recoveryPhone || phoneNumber
+        );
+      }
 
       if (!res.success) {
         setErrorMessage(
@@ -615,12 +868,116 @@ export const LockScreen: React.FC = () => {
         )}
 
         {/* =====================================================================
-            FORGOT PASSWORD & 6-DIGIT WHATSAPP CLOUD API OTP FLOW (MULTI-USER)
+            FORGOT PASSWORD: GMAIL (NODEMAILER) OR WHATSAPP CLOUD API OTP
            ===================================================================== */}
         {authMode === 'forgot' && (
           <div className="space-y-4 text-start">
-            {/* SUB-STEP 1: Enter WhatsApp Phone Number */}
+            {/* Recovery Channel Selector Tabs */}
             {forgotStep === 'enter_phone' && (
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-black/45 border border-white/10 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecoveryMethod('gmail');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`py-2 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    recoveryMethod === 'gmail'
+                      ? 'bg-amber-400 text-neutral-950 shadow-md font-black'
+                      : 'text-neutral-300 hover:text-white'
+                  }`}
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'عبر Gmail المسجل' : 'Via Gmail'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecoveryMethod('whatsapp');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`py-2 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    recoveryMethod === 'whatsapp'
+                      ? 'bg-emerald-500 text-neutral-950 shadow-md font-black'
+                      : 'text-neutral-300 hover:text-white'
+                  }`}
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>{isAr ? 'عبر WhatsApp' : 'Via WhatsApp'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* SUB-STEP 1A: Enter Phone or Gmail for Gmail Nodemailer OTP */}
+            {forgotStep === 'enter_phone' && recoveryMethod === 'gmail' && (
+              <form onSubmit={handleRequestEmailResetOtp} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-white mb-1.5 drop-shadow">
+                    {isAr
+                      ? 'رقم الهاتف أو بريد Gmail المسجل به المحل'
+                      : 'Numéro de téléphone ou Gmail enregistré'}
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-amber-400 absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={recoveryInput || recoveryPhone}
+                      onChange={(e) => {
+                        setRecoveryInput(e.target.value);
+                        setRecoveryPhone(e.target.value);
+                      }}
+                      placeholder={isAr ? 'مثال: 0612345678 أو exemple@gmail.com' : 'Ex: 0612345678 ou contact@gmail.com'}
+                      className="w-full bg-black/40 backdrop-blur-sm border border-amber-500/40 focus:border-amber-400 rounded-xl ps-10 pe-4 py-3 text-xs sm:text-sm font-bold text-white placeholder-white/45 focus:outline-hidden transition"
+                    />
+                  </div>
+                  <p className="text-[11px] text-white/80 mt-1.5 leading-relaxed">
+                    {isAr
+                      ? 'سيقوم النظام بالبحث عن حسابك وإرسال كود OTP من 6 أرقام مباشرة إلى بريدك Gmail المسجل عبر Nodemailer (صالح لمدة 5 دقائق).'
+                      : 'Le système recherche votre compte et envoie le code OTP à votre Gmail enregistré via Nodemailer.'}
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+                >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>{isAr ? 'جاري إرسال الكود إلى بريدك Gmail...' : 'Envoi du code à votre Gmail...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>{isAr ? 'إرسال كود الاسترجاع إلى Gmail' : 'Envoyer le code OTP à mon Gmail'}</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="pt-2 border-t border-white/10 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className="text-xs font-bold text-neutral-300 hover:text-amber-400 transition cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{isAr ? 'العودة إلى صفحة تسجيل الدخول' : 'Retour à la connexion'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* SUB-STEP 1B: Enter WhatsApp Phone Number */}
+            {forgotStep === 'enter_phone' && recoveryMethod === 'whatsapp' && (
               <form onSubmit={handleRequestWhatsAppOtp} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-white mb-1.5 drop-shadow">
@@ -807,7 +1164,7 @@ export const LockScreen: React.FC = () => {
                           </span>
                         </div>
                         <div className="text-[11px] text-white/75 font-mono" dir="ltr">
-                          {resolvedStoreName} • {maskedTargetPhone}
+                          {resolvedStoreName} • {recoveryMethod === 'gmail' ? (maskedAccountEmail || resolvedAccountEmail) : maskedTargetPhone}
                         </div>
                       </div>
                     </div>
@@ -1010,14 +1367,28 @@ export const LockScreen: React.FC = () => {
                     className="text-neutral-300 hover:text-white flex items-center gap-1 cursor-pointer"
                   >
                     <ArrowRight className="w-3.5 h-3.5" />
-                    <span>{isAr ? 'تغيير رقم الواتساب' : 'Changer de numéro'}</span>
+                    <span>
+                      {recoveryMethod === 'gmail'
+                        ? isAr
+                          ? 'تغيير البريد أو الرقم'
+                          : 'Changer email/numéro'
+                        : isAr
+                        ? 'تغيير رقم الواتساب'
+                        : 'Changer de numéro'}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     disabled={rateLimitCooldown > 0 || isLoading}
-                    onClick={() => handleRequestWhatsAppOtp()}
-                    className="text-emerald-400 hover:underline disabled:opacity-50 disabled:no-underline font-bold cursor-pointer"
+                    onClick={() => {
+                      if (recoveryMethod === 'gmail') {
+                        handleRequestEmailResetOtp();
+                      } else {
+                        handleRequestWhatsAppOtp();
+                      }
+                    }}
+                    className="text-amber-400 hover:underline disabled:opacity-50 disabled:no-underline font-bold cursor-pointer"
                   >
                     {rateLimitCooldown > 0
                       ? isAr
@@ -1083,8 +1454,147 @@ export const LockScreen: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 1: Enter Phone Number + Secret PIN (Login / Register) */}
-        {authMode !== 'forgot' && step === 'phone' && (
+        {/* STEP 1: Registration Email OTP Verification Step */}
+        {authMode === 'register' && registerStep === 'verify_email' && (
+          <form onSubmit={handleVerifyRegisterEmail} className="space-y-4 text-start">
+            <div className="p-3.5 rounded-xl bg-black/45 border border-amber-500/35 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div>
+                    <div className="text-xs font-black text-white">
+                      {isAr ? 'تأكيد بريد Gmail لتفعيل الحساب' : 'Vérification de l\'adresse Gmail'}
+                    </div>
+                    <div className="text-[11px] text-white/75 font-mono" dir="ltr">
+                      {maskEmail(gmailInput)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5-Minute Expiry Badge */}
+                <div
+                  className={`px-2.5 py-1 rounded-lg border text-xs font-mono font-black flex items-center gap-1.5 shrink-0 ${
+                    registerExpirySecondsLeft > 60
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      : registerExpirySecondsLeft > 0
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 animate-pulse'
+                      : 'bg-rose-500/25 border-rose-500/50 text-rose-300'
+                  }`}
+                  dir="ltr"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>
+                    {registerExpirySecondsLeft > 0
+                      ? formatMmSs(registerExpirySecondsLeft)
+                      : '00:00'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-amber-300/90 pt-1 border-t border-white/10">
+                {registerExpirySecondsLeft > 0
+                  ? isAr
+                    ? '⏳ رمز التحقق تم إرساله عبر Nodemailer وصالح لمدة 5 دقائق فقط'
+                    : '⏳ Code envoyé via Nodemailer, valide pendant 5 minutes'
+                  : isAr
+                  ? '⚠️ انتهت صلاحية الرمز! اضغط على إعادة الإرسال.'
+                  : '⚠️ Code expiré ! Cliquez sur renvoyer.'}
+              </div>
+            </div>
+
+            {/* Sandbox / Fallback OTP Display if Nodemailer simulated */}
+            {registerFallbackCode && (
+              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-amber-200 font-bold text-[11px]">
+                    {isAr ? 'رمز تجريبي لتأكيد البريد:' : 'Code de test Gmail :'}
+                  </span>
+                  <span className="font-mono font-black text-sm px-2.5 py-0.5 rounded-lg bg-black/60 text-amber-400 border border-amber-400/40 tracking-widest">
+                    {registerFallbackCode}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRegisterOtpDigits(registerFallbackCode.split(''))}
+                  className="w-full py-1 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[11px] transition cursor-pointer"
+                >
+                  {isAr ? 'تعبئة الرمز تلقائياً (6 أرقام)' : 'Remplir automatiquement'}
+                </button>
+              </div>
+            )}
+
+            {/* 6-Digit OTP Input Boxes */}
+            <div>
+              <label className="block text-xs font-bold text-white mb-2 text-center">
+                {isAr
+                  ? 'أدخل رمز التحقق (6 أرقام) المرسل إلى بريدك Gmail'
+                  : 'Saisissez le code à 6 chiffres reçu sur votre Gmail'}
+              </label>
+              <div className="grid grid-cols-6 gap-2" dir="ltr">
+                {registerOtpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => {
+                      registerOtpInputRefs.current[idx] = el;
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={digit}
+                    onChange={(e) => handleRegisterOtpDigitChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleRegisterOtpKeyDown(idx, e)}
+                    className="w-full h-12 rounded-xl bg-black/50 border border-amber-500/40 focus:border-amber-400 text-center text-lg font-mono font-black text-amber-400 focus:outline-hidden transition shadow-inner"
+                  />
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || registerExpirySecondsLeft <= 0}
+              className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>{isAr ? 'جاري التحقق وتفعيل الحساب...' : 'Validation et activation...'}</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isAr ? 'تأكيد البريد وتفعيل الحساب' : 'Valider et activer le compte'}</span>
+                </>
+              )}
+            </button>
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setRegisterStep('form');
+                  setErrorMessage(null);
+                  setSuccessMessage(null);
+                }}
+                className="text-neutral-300 hover:text-white flex items-center gap-1 cursor-pointer"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>{isAr ? 'تعديل البريد أو المعلومات' : 'Modifier les infos'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => handlePhoneSubmit(new Event('submit') as any)}
+                className="text-amber-400 hover:underline disabled:opacity-50 font-bold cursor-pointer"
+              >
+                {isAr ? 'إعادة إرسال الرمز إلى Gmail' : 'Renvoyer le code'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* STEP 1: Enter Phone Number + Secret PIN (Login / Register Form) */}
+        {authMode !== 'forgot' && step === 'phone' && (authMode === 'login' || registerStep === 'form') && (
           <form onSubmit={handlePhoneSubmit} className="space-y-4 text-start">
             <div>
               <label className="block text-xs font-bold text-white mb-1.5 drop-shadow">
@@ -1132,8 +1642,10 @@ export const LockScreen: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setRecoveryPhone(phoneNumber);
+                      setRecoveryInput(phoneNumber);
                       setAuthMode('forgot');
                       setForgotStep('enter_phone');
+                      setRecoveryMethod('gmail');
                       setErrorMessage(null);
                       setSuccessMessage(null);
                     }}
@@ -1177,40 +1689,73 @@ export const LockScreen: React.FC = () => {
               </p>
             </div>
 
+            {/* Registration Fields: Store Name + MANDATORY GMAIL */}
             {authMode === 'register' && (
-              <div>
-                <label className="block text-xs font-bold text-white mb-1.5 drop-shadow">
-                  {isAr ? 'اسم المحل التجاري' : 'Nom de la boutique'}
-                </label>
-                <div className="relative">
-                  <Store className="w-4 h-4 text-amber-400 absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    value={storeName}
-                    onChange={(e) => setStoreName(e.target.value)}
-                    placeholder={isAr ? 'مثال: المحل الذهبي للهواتف' : 'Ex: Golden Phone Shop'}
-                    className="w-full bg-black/35 backdrop-blur-sm border border-amber-500/35 focus:border-amber-400 rounded-xl ps-10 pe-3.5 py-2.5 text-xs font-bold text-white placeholder-white/45 focus:outline-hidden transition"
-                  />
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-white mb-1.5 drop-shadow">
+                    {isAr ? 'اسم المحل التجاري' : 'Nom de la boutique'}
+                  </label>
+                  <div className="relative">
+                    <Store className="w-4 h-4 text-amber-400 absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      value={storeName}
+                      onChange={(e) => setStoreName(e.target.value)}
+                      placeholder={isAr ? 'مثال: المحل الذهبي للهواتف' : 'Ex: Golden Phone Shop'}
+                      className="w-full bg-black/35 backdrop-blur-sm border border-amber-500/35 focus:border-amber-400 rounded-xl ps-10 pe-3.5 py-2.5 text-xs font-bold text-white placeholder-white/45 focus:outline-hidden transition"
+                    />
+                  </div>
                 </div>
-              </div>
+
+                {/* MANDATORY GMAIL WITH NODEMAILER 6-DIGIT OTP VERIFICATION */}
+                <div>
+                  <label className="block text-xs font-bold text-white mb-1.5 drop-shadow flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isAr ? 'بريد Gmail الخاص بك (إجباري للتأكيد والتفعيل)' : 'Votre Gmail (Obligatoire)'}</span>
+                    </span>
+                    <span className="text-[10px] text-amber-400 font-mono font-bold bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
+                      {isAr ? 'إجباري' : 'Obligatoire'}
+                    </span>
+                  </label>
+                  <div className="relative" dir="ltr">
+                    <AtSign className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="email"
+                      dir="ltr"
+                      required
+                      value={gmailInput}
+                      onChange={(e) => setGmailInput(e.target.value)}
+                      placeholder="exemple@gmail.com"
+                      className="w-full bg-black/35 backdrop-blur-sm border border-amber-500/35 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold text-white placeholder-white/45 focus:outline-hidden transition text-left"
+                    />
+                  </div>
+                  <p className="text-[11px] text-white/80 mt-1 leading-relaxed drop-shadow">
+                    {isAr
+                      ? 'سنرسل لك كود تحقق من 6 أرقام عبر Nodemailer للتأكد من حسابك، ومنه ستسترجع كلمة المرور إذا نسيتها.'
+                      : 'Un code de confirmation (6 chiffres) sera envoyé par Nodemailer pour vérifier votre compte.'}
+                  </p>
+                </div>
+              </>
             )}
 
             <div className="space-y-2.5 pt-1">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
               >
                 {isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>{isAr ? 'جاري التحقق وتحميل البيانات...' : 'Vérification et chargement...'}</span>
+                    <span>{isAr ? 'جاري إرسال كود التأكيد...' : 'Envoi en cours...'}</span>
                   </>
                 ) : authMode === 'register' ? (
                   <>
-                    <UserPlus className="w-4 h-4" />
-                    <span>{isAr ? 'إنشاء الحساب والدخول' : 'Créer le compte et accéder'}</span>
+                    <Send className="w-4 h-4" />
+                    <span>{isAr ? 'إرسال كود تأكيد Gmail والمتابعة' : 'Envoyer le code OTP Gmail'}</span>
                   </>
                 ) : (
                   <>
@@ -1225,18 +1770,20 @@ export const LockScreen: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setRecoveryPhone(phoneNumber);
+                    setRecoveryInput(phoneNumber);
                     setAuthMode('forgot');
                     setForgotStep('enter_phone');
+                    setRecoveryMethod('gmail');
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}
-                  className="w-full py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/35 text-amber-300 font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <Mail className="w-3.5 h-3.5 text-amber-400" />
                   <span>
                     {isAr
-                      ? 'نسيت كلمة السر؟ استرجاع عبر كود واتساب (OTP)'
-                      : 'Mot de passe oublié ? Récupérer via WhatsApp (OTP)'}
+                      ? 'نسيت كلمة السر؟ استرجاع عبر بريد Gmail المسجل'
+                      : 'Mot de passe oublié ? Récupérer via Gmail'}
                   </span>
                 </button>
               )}
@@ -1249,6 +1796,7 @@ export const LockScreen: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setAuthMode('register');
+                    setRegisterStep('form');
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}
@@ -1264,6 +1812,7 @@ export const LockScreen: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setAuthMode('login');
+                    setRegisterStep('form');
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}

@@ -32,6 +32,16 @@ import {
   findUserAccountByWhatsAppPhone,
   syncShopMembersPhoneIndex,
 } from './whatsappCloudApi';
+import {
+  sendEmailOtp,
+  verifyEmailOtp,
+  resetPasswordWithEmailOtp,
+  lookupAccountEmailForPasswordReset,
+  normalizeEmail,
+  isValidEmail,
+  SendEmailOtpResult,
+  AccountEmailLookupResult,
+} from './emailOtpService';
 
 export function normalizePhoneForCompare(phone: string | undefined): string {
   if (!phone) return '';
@@ -76,7 +86,9 @@ interface AccessAuthContextType {
     phone: string,
     storeName?: string,
     pinCode?: string,
-    mode?: 'login' | 'register'
+    mode?: 'login' | 'register',
+    email?: string,
+    emailVerified?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   lock: () => void;
@@ -110,6 +122,9 @@ interface AccessAuthContextType {
     apiWarning?: string;
     demoOtpCode?: string;
   }>;
+  sendEmailRecoveryCode: (phoneOrEmail: string) => Promise<
+    SendEmailOtpResult & { account?: AccountEmailLookupResult }
+  >;
   resetAdminPasswordWithCode: (
     code: string,
     newPassword: string,
@@ -120,6 +135,15 @@ interface AccessAuthContextType {
     shopPhone?: string;
     userName?: string;
     accountType?: 'owner' | 'member';
+  }>;
+  resetAdminPasswordWithEmailCode: (
+    email: string,
+    code: string,
+    newPassword: string,
+    shopPhone?: string
+  ) => Promise<{
+    success: boolean;
+    error?: string;
   }>;
   verifyAdminPasswordOnly: (password: string) => Promise<boolean>;
   submitAdminApprovalRequest: (
@@ -220,7 +244,9 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       rawPhone: string,
       storeName?: string,
       pinCode?: string,
-      mode: 'login' | 'register' = 'login'
+      mode: 'login' | 'register' = 'login',
+      email?: string,
+      emailVerified?: boolean
     ): Promise<{ success: boolean; error?: string }> => {
       const cleanPhone = normalizeShopPhoneNumber(rawPhone);
       if (!cleanPhone || cleanPhone.length < 9) {
@@ -233,6 +259,16 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           success: false,
           error: 'المرجو إدخال الكود السري المكون من 4 أرقام على الأقل لحماية حسابك.',
         };
+      }
+
+      const cleanEmail = email ? normalizeEmail(email) : '';
+      if (mode === 'register') {
+        if (!cleanEmail || !isValidEmail(cleanEmail)) {
+          return {
+            success: false,
+            error: 'المرجو إدخال بريد Gmail صحيح وتأكيده لإكمال التسجيل أول مرة.',
+          };
+        }
       }
 
       try {
@@ -383,6 +419,13 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               pinCode: ownerPinToSave,
               updated_at: new Date().toISOString(),
               ...(shopExistsInCloud ? {} : { created_at: new Date().toISOString() }),
+              ...(cleanEmail
+                ? {
+                    email: cleanEmail,
+                    adminEmail: cleanEmail,
+                    emailVerified: Boolean(emailVerified),
+                  }
+                : {}),
             },
             { merge: true }
           );
@@ -411,6 +454,8 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           shopId: effectiveShopPhone,
           phone: effectiveShopPhone,
           adminPhone: latestSettings.adminPhone || effectiveShopPhone,
+          adminEmail: cleanEmail || latestSettings.adminEmail,
+          emailVerified: cleanEmail ? Boolean(emailVerified) : latestSettings.emailVerified,
           pinCode: ownerPinToSave,
           storeName: finalStoreName,
         });
@@ -532,12 +577,46 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return await createAndSendPasswordResetOtp(phone);
   }, []);
 
+  const sendEmailRecoveryCode = useCallback(async (phoneOrEmail: string) => {
+    const lookup = await lookupAccountEmailForPasswordReset(phoneOrEmail);
+    if (!lookup.found || !lookup.email) {
+      return {
+        success: false,
+        error: lookup.error || 'تعذر العثور على الحساب أو البريد المرتبط به.',
+        account: lookup,
+      };
+    }
+    const sendRes = await sendEmailOtp({
+      email: lookup.email,
+      type: 'password_reset',
+      storeName: lookup.storeName || 'المحل الذهبي',
+      userName: lookup.userName,
+      phone: lookup.shopPhone,
+    });
+    return {
+      ...sendRes,
+      account: lookup,
+    };
+  }, []);
+
   const resetAdminPasswordWithCode = useCallback(
     async (code: string, newPassword: string, phone?: string) => {
       return await verifyOtpAndResetUserPassword({
         rawPhone: phone || activePhone,
         otpCode: code,
         newPassword,
+      });
+    },
+    [activePhone]
+  );
+
+  const resetAdminPasswordWithEmailCode = useCallback(
+    async (email: string, code: string, newPassword: string, shopPhone?: string) => {
+      return await resetPasswordWithEmailOtp({
+        email,
+        otp: code,
+        newPassword,
+        shopPhone: shopPhone || activePhone,
       });
     },
     [activePhone]
@@ -625,7 +704,9 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         loginWithCredentials,
         registerAccount,
         sendWhatsAppRecoveryCode,
+        sendEmailRecoveryCode,
         resetAdminPasswordWithCode,
+        resetAdminPasswordWithEmailCode,
         verifyAdminPasswordOnly,
         submitAdminApprovalRequest,
         changePin,

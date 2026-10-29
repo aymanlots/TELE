@@ -22,6 +22,9 @@ import {
   UserPlus,
   Cloud,
   Crown,
+  Mail,
+  Send,
+  AtSign,
 } from 'lucide-react';
 import { useLicensePlan } from '../lib/licensePlan';
 import { useAccessAuth } from '../lib/accessAuth';
@@ -100,6 +103,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
   const [metaAccessToken, setMetaAccessToken] = useState<string>('');
   const [metaTemplateName, setMetaTemplateName] = useState<string>('');
   const [metaTemplateLang, setMetaTemplateLang] = useState<string>('ar');
+  const [adminEmail, setAdminEmail] = useState<string>('');
+  const [gmailAppUser, setGmailAppUser] = useState<string>('');
+  const [gmailAppPassword, setGmailAppPassword] = useState<string>('');
+  const [isTestingEmail, setIsTestingEmail] = useState<boolean>(false);
   const [localMembers, setLocalMembers] = useState<ShopMember[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
@@ -154,6 +161,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
       setMetaAccessToken(s.metaAccessToken || localMeta.accessToken || '');
       setMetaTemplateName(s.metaTemplateName || localMeta.templateName || '');
       setMetaTemplateLang(s.metaTemplateLang || localMeta.templateLang || 'ar');
+      setAdminEmail(s.adminEmail || '');
+      setGmailAppUser(s.gmailAppUser || s.adminEmail || '');
+      setGmailAppPassword(s.gmailAppPassword || '');
       setLocalMembers(Array.isArray(s.shopMembers) ? s.shopMembers : []);
 
       // Load WhatsApp Templates
@@ -167,6 +177,51 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
     load();
   }, [language]);
 
+  // Test Gmail App Password & Nodemailer Connection
+  const handleTestGmailOtp = async () => {
+    const targetEmail = (adminEmail || gmailAppUser || '').trim();
+    if (!targetEmail) {
+      error(language === 'ar' ? 'المرجو إدخال بريد Gmail أولاً للاختبار' : 'Veuillez saisir une adresse Gmail');
+      return;
+    }
+    setIsTestingEmail(true);
+    try {
+      const testCode = String(Math.floor(100000 + Math.random() * 900000));
+      const res = await fetch('/api/send-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: targetEmail,
+          otp: testCode,
+          type: 'test',
+          storeName: storeName || 'المحل الذهبي',
+          customGmailUser: gmailAppUser.trim() || undefined,
+          customGmailAppPassword: gmailAppPassword.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.delivered) {
+        success(
+          language === 'ar'
+            ? `تم إرسال بريد اختباري بنجاح عبر Nodemailer إلى ${targetEmail}!`
+            : `Email test envoyé avec succès à ${targetEmail} !`
+        );
+      } else if (data.simulated) {
+        success(
+          language === 'ar'
+            ? `تم توليد الرمز التجريبي (${data.otpCode}). مضبوط على وضع الاختبار المحاكي.`
+            : `Code test généré : ${data.otpCode}`
+        );
+      } else {
+        error(data.error || (language === 'ar' ? 'فشل إرسال البريد' : "Échec d'envoi"));
+      }
+    } catch (err: any) {
+      error(err.message || 'Error');
+    } finally {
+      setIsTestingEmail(false);
+    }
+  };
+
   // Save Store Settings
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,6 +234,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
         subscriptionEndsAt,
         adminName: adminName.trim() || undefined,
         adminPhone: adminPhone.trim() || phone.trim() || undefined,
+        adminEmail: adminEmail.trim() || undefined,
+        gmailAppUser: gmailAppUser.trim() || undefined,
+        gmailAppPassword: gmailAppPassword.trim() || undefined,
         whatsappGatewayUrl: whatsappGatewayUrl.trim() || undefined,
         metaPhoneNumberId: metaPhoneNumberId.trim() || undefined,
         metaAccessToken: metaAccessToken.trim() || undefined,
@@ -947,6 +1005,81 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                       dir="ltr"
                       className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-amber-300 font-mono font-bold text-xs"
                     />
+                  </div>
+                </div>
+
+                {/* Nodemailer & Gmail App Password Card for OTP */}
+                <div className="mt-3 pt-3 border-t border-neutral-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-bold text-amber-400 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>
+                        {language === 'ar'
+                          ? 'إعدادات Gmail و Nodemailer (تأكيد التسجيل أول مرة واسترجاع كلمة المرور)'
+                          : 'Configuration Gmail & Nodemailer (Vérification et Récupération)'}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+                      {language === 'ar' ? 'Gmail App Password • كود 6 أرقام • 5 دقائق' : 'App Password • 6 chiffres • 5 min'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-neutral-400 text-[11px] mb-1">
+                        {language === 'ar' ? 'بريد Gmail المسجل للأدمين' : 'Gmail Admin Enregistré'}
+                      </label>
+                      <input
+                        type="email"
+                        dir="ltr"
+                        value={adminEmail}
+                        onChange={(e) => setAdminEmail(e.target.value)}
+                        placeholder="aissaaimanekhlifi@gmail.com"
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-neutral-400 text-[11px] mb-1">
+                        {language === 'ar' ? 'Gmail App Password (16 حرفاً)' : 'Gmail App Password (16 caractères)'}
+                      </label>
+                      <input
+                        type="password"
+                        dir="ltr"
+                        value={gmailAppPassword}
+                        onChange={(e) => setGmailAppPassword(e.target.value)}
+                        placeholder="abcd efgh ijkl mnop"
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-amber-300 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      disabled={isTestingEmail}
+                      onClick={handleTestGmailOtp}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+                    >
+                      {isTestingEmail ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {language === 'ar'
+                          ? 'اختبار إرسال OTP تجريبي إلى Gmail'
+                          : "Tester l'envoi OTP à Gmail"}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveSettings}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{language === 'ar' ? 'حفظ إعدادات البريد' : 'Enregistrer'}</span>
+                    </button>
                   </div>
                 </div>
 

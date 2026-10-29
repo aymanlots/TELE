@@ -25,6 +25,22 @@
           document.documentElement.classList.add('dark');
           document.documentElement.classList.remove('light');
         } catch (e) {}
+
+        // Suppress benign Vite WebSocket HMR disconnection errors in sandbox/iframe environment
+        window.addEventListener('error', function(event) {
+          if (event && event.message && (event.message.includes('WebSocket') || event.message.includes('ws:'))) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reasonStr = (event && event.reason && (event.reason.message || String(event.reason))) || '';
+          if (reasonStr.includes('WebSocket') || reasonStr.includes('ws:')) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        }, true);
       })();
     </script>
   </head>

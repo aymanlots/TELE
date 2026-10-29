@@ -366,6 +366,10 @@ export interface StoreSettings {
   shopMembers?: ShopMember[];
   adminName?: string;
   adminPhone?: string; // Admin WhatsApp phone number for login & password recovery
+  adminEmail?: string; // Registered mandatory Gmail
+  emailVerified?: boolean; // Whether Gmail was verified with 6-digit OTP
+  gmailAppUser?: string; // Custom Gmail address for Nodemailer
+  gmailAppPassword?: string; // Custom Gmail App Password (16 characters)
   pinCode?: string; // 4+ digit secret PIN protecting the phone account across all devices
   whatsappGatewayUrl?: string; // Optional webhook/CallMeBot URL for background WhatsApp OTP
   metaPhoneNumberId?: string; // Meta WhatsApp Cloud API Phone Number ID
