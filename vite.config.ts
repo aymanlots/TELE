@@ -7,6 +7,66 @@ import {VitePWA} from 'vite-plugin-pwa';
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'vite-suppress-hmr-client-error',
+        transformIndexHtml: {
+          order: 'pre',
+          handler() {
+            return [
+              {
+                tag: 'script',
+                attrs: {},
+                children: `
+(function() {
+  try {
+    var origErr = console.error;
+    console.error = function() {
+      for (var i = 0; i < arguments.length; i++) {
+        var str = (arguments[i] && (arguments[i].message || arguments[i].stack || String(arguments[i]))) || '';
+        if (str.indexOf('WebSocket') !== -1 || str.indexOf('[vite]') !== -1) return;
+      }
+      return origErr.apply(console, arguments);
+    };
+    if (typeof window !== 'undefined' && window.WebSocket) {
+      var NativeWS = window.WebSocket;
+      window.WebSocket = function(url, protocols) {
+        if (protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) || String(url).indexOf('vite-hmr') !== -1) {
+          return {
+            readyState: 3,
+            url: String(url),
+            bufferedAmount: 0,
+            extensions: '',
+            protocol: 'vite-hmr',
+            binaryType: 'blob',
+            onopen: null,
+            onclose: null,
+            onerror: null,
+            onmessage: null,
+            addEventListener: function(type, listener) {
+              if (type === 'close') {
+                setTimeout(function() {
+                  try { listener({ wasClean: true, code: 1000, reason: 'HMR disabled' }); } catch (e) {}
+                }, 0);
+              }
+            },
+            removeEventListener: function() {},
+            dispatchEvent: function() { return false; },
+            send: function() {},
+            close: function() {},
+          };
+        }
+        return new NativeWS(url, protocols);
+      };
+      window.WebSocket.prototype = NativeWS.prototype;
+    }
+  } catch (e) {}
+})();`,
+                injectTo: 'head-prepend',
+              },
+            ];
+          },
+        },
+      },
       react(),
       tailwindcss(),
       VitePWA({
