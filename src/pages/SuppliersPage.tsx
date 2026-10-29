@@ -344,7 +344,7 @@ export const SuppliersPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-xl bg-neutral-900 border border-neutral-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.55)]">
         <div>
           <h1 className="text-xl font-bold text-neutral-100 tracking-tight flex items-center gap-2">
             <Truck className="w-5 h-5 text-amber-400" />
@@ -369,7 +369,7 @@ export const SuppliersPage: React.FC = () => {
       </div>
 
       {/* Search Input */}
-      <div className="p-4 rounded-xl bg-neutral-900/70 border border-neutral-800">
+      <div className="p-4 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.55)]">
         <div className="relative w-full max-w-md">
           <Search className="w-4 h-4 text-neutral-400 absolute start-3 top-1/2 -translate-y-1/2" />
           <input

@@ -133,16 +133,16 @@ export const GlassCard: React.FC<{
 }> = ({ children, className = '', spotlight = false, onClick }) => (
   <div
     onClick={onClick}
-    className={`relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition-all duration-300 ${
-      onClick ? 'cursor-pointer hover:scale-[1.02] hover:border-yellow-500/40' : ''
+    className={`relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] transition-all duration-300 ${
+      onClick ? 'cursor-pointer hover:scale-[1.01] hover:border-amber-400/40' : ''
     } ${className}`}
   >
-    <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-amber-300/30 to-transparent" />
     {spotlight && (
       <div
         className="pointer-events-none absolute inset-0"
         style={{
-          background: 'radial-gradient(circle at 50% 48%, rgba(255, 200, 50, 0.16) 0%, transparent 68%)',
+          background: 'radial-gradient(circle at 50% 48%, rgba(255, 200, 50, 0.12) 0%, transparent 68%)',
         }}
       />
     )}
@@ -177,7 +177,7 @@ export const GlassKpiCard: React.FC<{
   return (
     <div
       onClick={onClick}
-      className={`relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)] hover:scale-[1.02] transition-all duration-300 flex flex-col justify-between min-h-[168px] ${
+      className={`relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 sm:p-6 shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] hover:scale-[1.01] hover:border-amber-400/50 transition-all duration-300 flex flex-col justify-between min-h-[175px] ${
         onClick ? 'cursor-pointer' : ''
       }`}
     >

@@ -31,16 +31,16 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: '/assets/aistudio/image_e43ac3cd.png',
               sizes: '192x192',
               type: 'image/png',
-              purpose: 'any',
+              purpose: 'any maskable',
             },
             {
-              src: '/pwa-512x512.png',
+              src: '/assets/aistudio/image_e43ac3cd.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any',
+              purpose: 'any maskable',
             },
           ],
         },

@@ -279,6 +279,41 @@
         "value": { "type": "any", "required": true },
         "updated_at": { "type": "string", "required": true }
       }
+    },
+    "password_reset_otps": {
+      "collection": "password_reset_otps",
+      "description": "Multi-user 6-digit OTP password reset records with 5-minute expiration and rate limiting.",
+      "fields": {
+        "phone": { "type": "string", "required": true },
+        "e164Phone": { "type": "string", "required": true },
+        "shopPhone": { "type": "string", "required": true },
+        "accountType": { "type": "string", "required": true },
+        "memberId": { "type": "string", "required": false },
+        "userName": { "type": "string", "required": true },
+        "userRole": { "type": "string", "required": true },
+        "otpCodeHash": { "type": "string", "required": true },
+        "createdAt": { "type": "number", "required": true },
+        "expiresAt": { "type": "number", "required": true },
+        "expiresAtIso": { "type": "string", "required": true },
+        "used": { "type": "boolean", "required": true },
+        "verifyAttempts": { "type": "number", "required": true },
+        "lastSentAt": { "type": "number", "required": true },
+        "windowStartAt": { "type": "number", "required": true },
+        "requestCountInWindow": { "type": "number", "required": true }
+      }
+    },
+    "user_phone_index": {
+      "collection": "user_phone_index",
+      "description": "Index mapping employee/member WhatsApp phone numbers to their parent shop.",
+      "fields": {
+        "phone": { "type": "string", "required": true },
+        "shopPhone": { "type": "string", "required": true },
+        "memberId": { "type": "string", "required": true },
+        "fullName": { "type": "string", "required": true },
+        "role": { "type": "string", "required": true },
+        "active": { "type": "boolean", "required": true },
+        "updatedAt": { "type": "string", "required": true }
+      }
     }
   }
 }

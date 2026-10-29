@@ -399,7 +399,7 @@ export const BonsHistoryPage: React.FC<BonsHistoryPageProps> = ({ initialSearch 
       )}
 
       {/* Filter Strip — Glass Card */}
-      <div className="relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-3 p-5 rounded-[20px] bg-black/65 backdrop-blur-xl border border-yellow-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+      <div className="relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-3 p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.55)]">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
         {/* Search + Camera Scan */}
         <div className="flex items-center gap-2 w-full md:w-96">

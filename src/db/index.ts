@@ -2245,6 +2245,7 @@ export async function registerUsedPhoneTradeInTransaction(params: {
   modelName: string;
   imei: string;
   condition: PhoneCondition;
+  batteryHealth?: number;
   purchasePrice: number;
   retailPrice: number;
   wholesalePrice?: number;
@@ -2290,13 +2291,14 @@ export async function registerUsedPhoneTradeInTransaction(params: {
         createdAt: now,
         isTradeIn: true,
         condition: params.condition,
+        batteryHealth: params.batteryHealth,
         tradeInCustomerName: params.customerName.trim(),
         tradeInCustomerPhone: params.customerPhone?.trim(),
         tradeInCustomerCIN: params.customerCIN?.trim(),
         tradeInCinImage: params.customerCinImage,
         notes: params.notes
-          ? `[Reprise de ${params.customerName} - CIN: ${params.customerCIN || 'N/A'}] ${params.notes}`
-          : `Reprise téléphone d'occasion de ${params.customerName} (CIN: ${params.customerCIN || 'N/A'})`,
+          ? `[Reprise de ${params.customerName} - CIN: ${params.customerCIN || 'N/A'}${params.batteryHealth ? ` - Batterie: ${params.batteryHealth}%` : ''}] ${params.notes}`
+          : `Reprise téléphone d'occasion de ${params.customerName} (CIN: ${params.customerCIN || 'N/A'}${params.batteryHealth ? ` - Batterie: ${params.batteryHealth}%` : ''})`,
       });
 
       const id = await db.products.add(newProduct);

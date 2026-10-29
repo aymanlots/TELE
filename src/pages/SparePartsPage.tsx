@@ -369,7 +369,7 @@ export const SparePartsPage: React.FC<SparePartsPageProps> = ({
       </div>
 
       {/* Search, Filter & Add Part Glass Bar */}
-      <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-3">
+      <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-3">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
           {/* Search Input */}

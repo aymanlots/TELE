@@ -1,29 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Printer,
-  Eye,
-  X,
-  FileDown,
-  Receipt,
-  Wrench,
-  Languages,
-  Maximize2,
-  ShieldCheck,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
+import { Printer, X, Check } from 'lucide-react';
 import { Sale, RepairOrder, StoreSettings, ReceiptPaperWidth } from '../types';
-import { getStoreSettings, saveStoreSettings, getNetTotal } from '../db';
-import { useI18n } from '../i18n';
-import { generateQrCodeDataUrl, printHtmlContent } from '../lib/code128';
-import { addMonthsClamped } from '../lib/dateUtils';
+import { getStoreSettings, getNetTotal } from '../db';
 import { buildRepairTrackingUrl } from '../lib/whatsapp';
 
-export interface ReceiptPrintModalProps {
+interface ReceiptPrintModalProps {
   isOpen: boolean;
   onClose: () => void;
   sale?: Sale | null;
   repair?: RepairOrder | null;
   repairType?: 'deposit' | 'delivery';
-  autoPrintOnOpen?: boolean;
 }
 
 export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
@@ -32,778 +19,612 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
   sale,
   repair,
   repairType = 'deposit',
-  autoPrintOnOpen = false,
 }) => {
-  const { language } = useI18n();
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [settings, setSettings] = useState<StoreSettings>({
+    storeName: '',
+    address: '',
+    phone: '',
+    defaultWarrantyMonths: 6,
+    language: 'ar',
+    theme: 'dark',
+  });
   const [paperWidth, setPaperWidth] = useState<ReceiptPaperWidth>('80mm');
-  const [receiptLang, setReceiptLang] = useState<'ar' | 'fr'>(language);
+  const [receiptLang, setReceiptLang] = useState<'ar' | 'fr'>('ar');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const receiptContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setReceiptLang(language);
-  }, [language]);
+    if (isOpen) {
+      getStoreSettings().then((currentSettings) => {
+        setSettings(currentSettings);
+        if (currentSettings.receiptPaperWidth) {
+          setPaperWidth(currentSettings.receiptPaperWidth);
+        }
+      });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    let active = true;
 
-    async function load() {
-      const s = await getStoreSettings();
-      if (!active) return;
-      setSettings(s);
-      if (s.receiptPaperWidth) {
-        setPaperWidth(s.receiptPaperWidth);
-      }
-
-      // Generate Warranty / Live Repair Tracking QR Code
-      if (sale) {
-        const qrPayload = sale.bonNumber;
-        const url = await generateQrCodeDataUrl(qrPayload, 160);
-        if (active) setQrDataUrl(url);
-      } else if (repair) {
-        const qrPayload = buildRepairTrackingUrl(repair, s.storeName, s.phone);
-        const url = await generateQrCodeDataUrl(qrPayload, 180);
-        if (active) setQrDataUrl(url);
-      }
-    }
-
-    load();
-    return () => {
-      active = false;
-    };
-  }, [isOpen, sale, repair]);
-
-  // Handle changing paper size and persisting it to StoreSettings
-  const handleSelectPaperWidth = async (width: ReceiptPaperWidth) => {
-    setPaperWidth(width);
-    if (settings) {
-      const updated = { ...settings, receiptPaperWidth: width };
-      setSettings(updated);
-      await saveStoreSettings(updated);
-    }
-  };
-
-  // Trigger browser print via hidden iframe with @page size matching 58mm, 80mm, or A4
-  const handleBrowserPrint = () => {
-    if (!receiptContainerRef.current) return;
-    const htmlContent = receiptContainerRef.current.innerHTML;
-
-    let pageSizeCss = '';
-    if (paperWidth === '58mm') {
-      pageSizeCss = `
-        @page {
-          size: 58mm auto;
-          margin: 0mm;
-        }
-        body {
-          width: 58mm;
-          max-width: 58mm;
-          padding: 1.5mm 2mm;
-          font-size: 11px;
-        }
-      `;
-    } else if (paperWidth === '80mm') {
-      pageSizeCss = `
-        @page {
-          size: 80mm auto;
-          margin: 0mm;
-        }
-        body {
-          width: 80mm;
-          max-width: 80mm;
-          padding: 2mm 3mm;
-          font-size: 12px;
-        }
-      `;
-    } else {
-      pageSizeCss = `
-        @page {
-          size: A4 portrait;
-          margin: 8mm;
-        }
-        body {
-          width: 100%;
-          max-width: 190mm;
-          margin: 0 auto;
-          padding: 4mm;
-          font-size: 13px;
-        }
-      `;
-    }
-
-    printHtmlContent(htmlContent, pageSizeCss);
-  };
-
-  // Optional auto-print
-  useEffect(() => {
-    if (isOpen && autoPrintOnOpen && settings && qrDataUrl) {
-      const timer = setTimeout(() => {
-        handleBrowserPrint();
-      }, 250);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, autoPrintOnOpen, settings, qrDataUrl]);
-
-  // Download classic A4 PDF (Dynamic import - Partie 1 #11)
-  const handleDownloadPdf = async () => {
-    const s = settings || (await getStoreSettings());
-    const {
-      generateBonPDF,
-      generateRepairDepositPDF,
-      generateRepairDeliveryPDF,
-    } = await import('../lib/pdfGenerator');
     if (sale) {
-      await generateBonPDF(sale, s, 'save');
+      const netTotal = getNetTotal(sale);
+      const qrPayload = JSON.stringify({
+        bon: sale.bonNumber,
+        date: sale.date,
+        total: netTotal,
+        store: settings.storeName || 'Mon Magasin',
+        phone: settings.phone || '',
+      });
+
+      QRCode.toDataURL(qrPayload, {
+        width: 140,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch(() => setQrDataUrl(''));
     } else if (repair) {
-      if (repairType === 'delivery') {
-        await generateRepairDeliveryPDF(repair, s, 'save');
-      } else {
-        await generateRepairDepositPDF(repair, s, 'save');
-      }
+      const trackingUrl = buildRepairTrackingUrl(repair, settings.storeName || 'Mon Magasin');
+      QRCode.toDataURL(trackingUrl, {
+        width: 140,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch(() => setQrDataUrl(''));
     }
-  };
+  }, [isOpen, sale, repair, settings]);
 
   if (!isOpen || (!sale && !repair)) return null;
 
-  const isAr = receiptLang === 'ar';
-  const dir = isAr ? 'rtl' : 'ltr';
-  const fallbackName = isAr ? 'متجري' : 'Mon Magasin';
-  const storeName = settings?.storeName?.trim() || fallbackName;
-  const storeSubtitle = settings?.storeSubtitle?.trim();
-  const storeAddress = settings?.address?.trim();
-  const storePhone = settings?.phone?.trim();
-  const storeIce = settings?.ice?.trim();
-  const storeRc = settings?.rc?.trim();
-  const storeLogo = settings?.logo;
+  const isRTL = receiptLang === 'ar';
+  const fallbackStoreName = receiptLang === 'ar' ? 'متجري' : 'Mon Magasin';
+  const storeName = settings.storeName?.trim() || fallbackStoreName;
 
-  const isCompact = paperWidth === '58mm';
-  const isThermal = paperWidth === '58mm' || paperWidth === '80mm';
+  const docNumber = sale ? sale.bonNumber : repair?.repairNumber || '';
+  const docDate = sale
+    ? sale.date
+    : repairType === 'delivery'
+    ? repair?.actualDeliveryDate || repair?.intakeDate || ''
+    : repair?.intakeDate || '';
 
-  // Preview width in modal
-  const previewWidthClass =
-    paperWidth === '58mm'
-      ? 'w-[235px]'
-      : paperWidth === '80mm'
-      ? 'w-[315px]'
-      : 'w-full max-w-[650px]';
+  const netTotal = sale ? getNetTotal(sale) : repair?.agreedPrice || 0;
+  const rawSubtotal = sale ? sale.subtotal ?? sale.totalAmount + (sale.discountAmount || 0) : netTotal;
+  const hasDiscount = Boolean(sale && sale.discountAmount && sale.discountAmount > 0);
+  const returnedSum = sale
+    ? Math.max(0, Math.round(((sale.totalAmount ?? 0) - netTotal) * 100) / 100)
+    : 0;
+  const hasReturns = returnedSum > 0;
 
-  // Calculate warranty end date if sale has warranty (clamped month arithmetic - Partie 1 #7)
-  const getWarrantyEndStr = (s: Sale) => {
-    if (!s.hasWarranty || !s.warrantyMonths) return '';
-    return addMonthsClamped(s.date, s.warrantyMonths);
+  const handleDirectPrint = () => {
+    const printContents = document.getElementById('printable-receipt-area')?.innerHTML;
+    if (!printContents) {
+      window.print();
+      return;
+    }
+
+    const pageWidthCss = paperWidth === '58mm' ? '58mm' : paperWidth === '80mm' ? '80mm' : '210mm';
+    const bodyWidthCss = paperWidth === '58mm' ? '54mm' : paperWidth === '80mm' ? '76mm' : '190mm';
+
+    const printFrame = document.createElement('iframe');
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    document.body.appendChild(printFrame);
+
+    const frameDoc = printFrame.contentWindow?.document;
+    if (!frameDoc) {
+      window.print();
+      return;
+    }
+
+    frameDoc.open();
+    frameDoc.write(`
+      <!DOCTYPE html>
+      <html dir="${isRTL ? 'rtl' : 'ltr'}" lang="${receiptLang}">
+        <head>
+          <meta charset="utf-8" />
+          <title>Bon_${docNumber}</title>
+          <style>
+            @page {
+              size: ${paperWidth === 'A4' ? 'A4 portrait' : `${pageWidthCss} auto`};
+              margin: ${paperWidth === 'A4' ? '10mm' : '2mm'};
+            }
+            * {
+              box-sizing: border-box;
+              color: #000000 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body {
+              margin: 0 auto;
+              padding: ${paperWidth === 'A4' ? '8mm' : '2mm'};
+              width: ${bodyWidthCss};
+              font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif;
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-size: ${paperWidth === '58mm' ? '11px' : paperWidth === '80mm' ? '12px' : '14px'};
+              line-height: 1.4;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 8px 0;
+            }
+            th, td {
+              padding: 4px 2px;
+              border-bottom: 1px dashed #444;
+              text-align: inherit;
+              vertical-align: top;
+            }
+            th {
+              border-top: 1.5px solid #000;
+              border-bottom: 1.5px solid #000;
+              font-weight: 800;
+            }
+            .divider-dashed {
+              border-top: 1.5px dashed #000;
+              margin: 8px 0;
+            }
+            .divider-solid {
+              border-top: 2px solid #000;
+              margin: 8px 0;
+            }
+            .text-center { text-align: center; }
+            .font-bold { font-weight: 700; }
+            .font-extrabold { font-weight: 800; }
+            .flex-between {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 6px;
+            }
+            .imei-badge {
+              display: inline-block;
+              font-family: monospace;
+              font-size: 10px;
+              border: 1px solid #000;
+              padding: 1px 4px;
+              border-radius: 3px;
+              margin-top: 2px;
+            }
+          </style>
+        </head>
+        <body>
+          ${printContents}
+        </body>
+      </html>
+    `);
+    frameDoc.close();
+
+    setTimeout(() => {
+      printFrame.contentWindow?.focus();
+      printFrame.contentWindow?.print();
+      setTimeout(() => {
+        if (document.body.contains(printFrame)) {
+          document.body.removeChild(printFrame);
+        }
+      }, 2000);
+    }, 300);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="relative w-full max-w-3xl bg-neutral-900 border border-amber-500/40 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
-        {/* Top Controls Header */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-neutral-950 border-b border-neutral-800">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[9999] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-[#16161B] border border-[#D4AF37]/30 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+        {/* Top Control Bar */}
+        <div className="p-4 bg-[#1E1E24] border-b border-[#282830] flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-              <Eye className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-neutral-100">
-                {language === 'ar' ? 'معاينة وطباعة الوصل' : 'Aperçu & Impression du Reçu'}
-              </h3>
-              <p className="text-[11px] text-neutral-400 font-mono">
-                {sale ? sale.bonNumber : repair?.repairNumber} · {paperWidth}
-              </p>
-            </div>
+            <Printer className="w-5 h-5 text-[#D4AF37]" />
+            <h3 className="font-bold text-white text-base">
+              معاينة وطباعة البون (N° {docNumber})
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg bg-[#282830] text-gray-400 hover:text-white transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Options Bar: Paper Size & Language */}
+        <div className="px-4 py-3 bg-[#121216] border-b border-[#282830] flex flex-wrap items-center justify-between gap-3">
+          {/* Paper Width Selector */}
+          <div className="flex items-center gap-1.5 bg-[#1E1E24] p-1 rounded-xl border border-[#282830]">
+            <span className="text-xs text-gray-400 px-2">حجم الورق:</span>
+            {(['58mm', '80mm', 'A4'] as const).map((size) => (
+              <button
+                key={size}
+                onClick={() => setPaperWidth(size)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                  paperWidth === size
+                    ? 'bg-[#D4AF37] text-black shadow'
+                    : 'text-gray-300 hover:bg-white/5'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
           </div>
 
-          {/* Paper Size & Language Switchers */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Paper Width Selector: 58mm | 80mm | A4 */}
-            <div className="flex items-center bg-neutral-900 p-1 rounded-xl border border-neutral-800 text-xs">
-              <Maximize2 className="w-3.5 h-3.5 text-amber-400 mx-1.5" />
-              {(['58mm', '80mm', 'A4'] as ReceiptPaperWidth[]).map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => handleSelectPaperWidth(w)}
-                  className={`px-2.5 py-1 rounded-lg font-mono font-bold transition ${
-                    paperWidth === w
-                      ? 'bg-amber-500 text-neutral-950 shadow-xs'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  {w}
-                </button>
-              ))}
-            </div>
-
-            {/* Receipt Language Toggle (RTL Darija / LTR French) */}
-            <div className="flex items-center bg-neutral-900 p-1 rounded-xl border border-neutral-800 text-xs">
-              <Languages className="w-3.5 h-3.5 text-amber-400 mx-1.5" />
-              <button
-                type="button"
-                onClick={() => setReceiptLang('ar')}
-                className={`px-2 py-1 rounded-lg font-bold transition ${
-                  receiptLang === 'ar'
-                    ? 'bg-amber-500 text-neutral-950'
-                    : 'text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                عربي (RTL)
-              </button>
-              <button
-                type="button"
-                onClick={() => setReceiptLang('fr')}
-                className={`px-2 py-1 rounded-lg font-bold transition ${
-                  receiptLang === 'fr'
-                    ? 'bg-amber-500 text-neutral-950'
-                    : 'text-neutral-400 hover:text-neutral-200'
-                }`}
-              >
-                FR (LTR)
-              </button>
-            </div>
-
+          {/* Language Selector */}
+          <div className="flex items-center gap-1.5 bg-[#1E1E24] p-1 rounded-xl border border-[#282830]">
+            <span className="text-xs text-gray-400 px-2">اللغة:</span>
             <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl bg-neutral-800 hover:bg-rose-500/20 hover:text-rose-300 text-neutral-400 border border-neutral-700 transition"
+              onClick={() => setReceiptLang('ar')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                receiptLang === 'ar'
+                  ? 'bg-[#D4AF37] text-black shadow'
+                  : 'text-gray-300 hover:bg-white/5'
+              }`}
             >
-              <X className="w-4 h-4" />
+              عربي (RTL)
+            </button>
+            <button
+              onClick={() => setReceiptLang('fr')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                receiptLang === 'fr'
+                  ? 'bg-[#D4AF37] text-black shadow'
+                  : 'text-gray-300 hover:bg-white/5'
+              }`}
+            >
+              FR (LTR)
             </button>
           </div>
         </div>
 
-        {/* Scrollable Receipt Paper Preview Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-neutral-950/90 flex justify-center items-start">
+        {/* Scrollable Receipt Preview Container */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#0E0E11] flex justify-center">
           <div
-            className={`${previewWidthClass} bg-white text-black rounded-sm shadow-[0_10px_40px_rgba(0,0,0,0.85)] transition-all duration-200 overflow-hidden`}
-            style={{
-              padding: isCompact ? '8px 6px' : isThermal ? '12px 10px' : '24px 28px',
-            }}
+            id="printable-receipt-area"
+            dir={isRTL ? 'rtl' : 'ltr'}
+            className={`bg-white text-black shadow-xl rounded-lg p-5 transition-all ${
+              paperWidth === '58mm'
+                ? 'w-[260px] text-xs'
+                : paperWidth === '80mm'
+                ? 'w-[340px] text-xs sm:text-sm'
+                : 'w-full max-w-[580px] text-sm p-8'
+            }`}
           >
-            {/* Actual Printable HTML Container */}
-            <div
-              ref={receiptContainerRef}
-              dir={dir}
-              style={{
-                direction: dir,
-                textAlign: isAr ? 'right' : 'left',
-                fontFamily: "'Cairo', system-ui, -apple-system, sans-serif",
-                color: '#000000',
-                backgroundColor: '#FFFFFF',
-                lineHeight: 1.35,
-                fontSize: isCompact ? '11px' : isThermal ? '12px' : '13px',
-              }}
-            >
-              {/* 1. STORE HEADER (LOGO, NAME, ADDRESS, PHONE, ICE, RC) */}
-              <div style={{ textAlign: 'center', marginBottom: '6px' }}>
-                {storeLogo && (
-                  <div style={{ marginBottom: '4px' }}>
-                    <img
-                      src={storeLogo}
-                      alt={storeName}
-                      style={{
-                        maxHeight: isCompact ? '44px' : isThermal ? '54px' : '70px',
-                        maxWidth: '80%',
-                        objectFit: 'contain',
-                        margin: '0 auto',
-                        display: 'block',
-                      }}
-                    />
-                  </div>
-                )}
-
+            {/* Store Header */}
+            <div className="text-center border-b-2 border-black pb-3 mb-3">
+              {settings.logo ? (
+                <img
+                  src={settings.logo}
+                  alt={storeName}
+                  style={{ width: '96px', height: '96px', objectFit: 'contain', margin: '0 auto 8px auto', display: 'block' }}
+                  className="mx-auto mb-2 w-24 h-24 object-contain"
+                />
+              ) : (
                 <div
                   style={{
-                    fontSize: isCompact ? '15px' : isThermal ? '17px' : '22px',
-                    fontWeight: 800,
-                    letterSpacing: '-0.01em',
+                    width: '88px',
+                    height: '88px',
+                    margin: '0 auto 8px auto',
+                    borderRadius: '14px',
+                    border: '2.5px solid #000000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '42px',
+                    fontWeight: 900,
+                    backgroundColor: '#f5f5f5',
+                    color: '#000000',
                   }}
                 >
-                  {storeName}
+                  {storeName.charAt(0).toUpperCase() || 'M'}
                 </div>
+              )}
+              <div className="font-extrabold text-lg tracking-wide uppercase text-black">
+                {storeName}
+              </div>
+              {settings.storeSubtitle?.trim() && (
+                <div className="text-xs font-semibold text-black mt-0.5">
+                  {settings.storeSubtitle}
+                </div>
+              )}
+              {settings.address?.trim() && (
+                <div className="text-[11px] text-black mt-1">
+                  📍 {settings.address}
+                </div>
+              )}
+              {settings.phone?.trim() && (
+                <div className="text-xs font-bold text-black mt-0.5" dir="ltr">
+                  📞 {settings.phone}
+                </div>
+              )}
+              {(settings.ice || settings.rc) && (
+                <div className="text-[10px] font-mono text-black mt-1">
+                  {settings.ice ? `ICE: ${settings.ice}` : ''}{' '}
+                  {settings.rc ? `| RC: ${settings.rc}` : ''}
+                </div>
+              )}
+            </div>
 
-                {storeSubtitle && (
-                  <div style={{ fontSize: isCompact ? '10px' : '11px', fontWeight: 600 }}>
-                    {storeSubtitle}
-                  </div>
-                )}
-
-                {storeAddress && (
-                  <div style={{ fontSize: isCompact ? '9.5px' : '10.5px', marginTop: '2px' }}>
-                    {storeAddress}
-                  </div>
-                )}
-
-                {storePhone && (
-                  <div
-                    style={{
-                      fontSize: isCompact ? '10.5px' : '11.5px',
-                      fontWeight: 700,
-                      fontFamily: 'monospace',
-                      marginTop: '1px',
-                    }}
-                    dir="ltr"
-                  >
-                    Tél: {storePhone}
-                  </div>
-                )}
-
-                {(storeIce || storeRc) && (
-                  <div
-                    style={{
-                      fontSize: isCompact ? '9px' : '10px',
-                      fontFamily: 'monospace',
-                      marginTop: '2px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {storeIce && <span>ICE: {storeIce}</span>}
-                    {storeIce && storeRc && <span> · </span>}
-                    {storeRc && <span>RC: {storeRc}</span>}
-                  </div>
+            {/* Document Title Banner */}
+            <div className="text-center border border-black py-1.5 px-2 mb-3 bg-gray-100 rounded">
+              <div className="font-extrabold text-sm uppercase">
+                {sale
+                  ? isRTL
+                    ? 'وصل بيع / BON DE VENTE'
+                    : 'BON DE VENTE / FACTURE'
+                  : repairType === 'delivery'
+                  ? isRTL
+                    ? 'وصل تسليم إصلاح / BON DE LIVRAISON'
+                    : 'BON DE LIVRAISON RÉPARATION'
+                  : isRTL
+                  ? 'وصل إيداع إصلاح / REÇU DE DÉPÔT'
+                  : 'REÇU DE DÉPÔT RÉPARATION'}
+              </div>
+              <div className="font-mono font-bold text-xs mt-0.5">
+                N° {docNumber}
+                {docNumber?.startsWith('G-L-') && (
+                  <span className="text-[10px] font-normal">
+                    {' '}
+                    ({isRTL ? 'رقم مؤقت' : 'N° Provisoire'})
+                  </span>
                 )}
               </div>
+            </div>
 
-              {/* Dashed separator */}
-              <div
-                style={{
-                  borderTop: '1.5px dashed #000000',
-                  margin: '6px 0',
-                }}
-              />
-
-              {/* 2. RECEIPT TYPE & META */}
-              {sale && (
-                <>
-                  <div style={{ textAlign: 'center', marginBottom: '6px' }}>
-                    <div
-                      style={{
-                        fontSize: isCompact ? '12px' : '14px',
-                        fontWeight: 800,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {isAr ? 'وصل بيع / فاتورة' : 'BON DE VENTE'}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: isCompact ? '12px' : '13px',
-                        fontFamily: 'monospace',
-                        fontWeight: 800,
-                      }}
-                    >
-                      N° {sale.bonNumber}
-                      {sale.bonNumber?.startsWith('G-L-') ? ' (N° PROVISOIRE)' : ''}
-                    </div>
+            {/* Sale Receipt Body */}
+            {sale && (
+              <>
+                {/* Sale & Customer Meta */}
+                <div className="space-y-1 text-xs mb-3 border-b border-dashed border-black pb-2.5">
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'التاريخ:' : 'Date:'}</span>
+                    <span className="font-mono">{sale.date}</span>
                   </div>
-
-                  <div style={{ fontSize: isCompact ? '10px' : '11px', marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'التاريخ:' : 'Date:'}</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{sale.date}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'الزبون:' : 'Client:'}</span>
-                      <span style={{ fontWeight: 700 }}>{sale.customerName}</span>
-                    </div>
-                    {sale.customerPhone && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{isAr ? 'الهاتف:' : 'Tél:'}</span>
-                        <span style={{ fontFamily: 'monospace' }} dir="ltr">
-                          {sale.customerPhone}
-                        </span>
-                      </div>
-                    )}
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'الزبون:' : 'Client:'}</span>
+                    <span className="font-bold">
+                      {sale.customerName || (isRTL ? 'زبون مباشر' : 'Client Comptoir')}
+                    </span>
                   </div>
+                  {sale.customerPhone && (
+                    <div className="flex justify-between">
+                      <span className="font-bold">{isRTL ? 'الهاتف:' : 'Tél:'}</span>
+                      <span className="font-mono" dir="ltr">{sale.customerPhone}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'طريقة الأداء:' : 'Mode:'}</span>
+                    <span>
+                      {sale.paymentType === 'cash'
+                        ? isRTL
+                          ? 'نقداً (Espèces)'
+                          : 'Espèces'
+                        : sale.paymentType === 'credit'
+                        ? isRTL
+                          ? 'كريدي (À Crédit)'
+                          : 'À Crédit'
+                        : isRTL
+                        ? 'بالتقسيط (Facilité)'
+                        : 'Facilité'}
+                    </span>
+                  </div>
+                </div>
 
-                  <div style={{ borderTop: '1px dashed #000000', margin: '5px 0' }} />
-
-                  {/* 3. SALE ITEMS TABLE */}
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      fontSize: isCompact ? '10px' : '11px',
-                    }}
-                  >
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #000000', fontWeight: 800 }}>
-                        <th style={{ textAlign: isAr ? 'right' : 'left', padding: '3px 0' }}>
-                          {isAr ? 'السلعة' : 'Article'}
-                        </th>
-                        <th style={{ textAlign: 'center', padding: '3px 2px' }}>
-                          {isAr ? 'كمية' : 'Qté'}
-                        </th>
-                        <th style={{ textAlign: isAr ? 'left' : 'right', padding: '3px 0' }}>
-                          {isAr ? 'المجموع' : 'Total'}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sale.items.map((item, idx) => (
-                        <tr
-                          key={idx}
-                          style={{
-                            borderBottom: '0.5px dotted #888888',
-                            textDecoration: item.isReturned ? 'line-through' : 'none',
-                          }}
-                        >
-                          <td style={{ padding: '4px 0', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 700 }}>{item.name}</div>
+                {/* Items Table */}
+                <table className="w-full text-xs border-collapse mb-3">
+                  <thead>
+                    <tr className="border-y-2 border-black font-extrabold">
+                      <th className="py-1.5 text-start">#</th>
+                      <th className="py-1.5 text-start">
+                        {isRTL ? 'المادة / Article' : 'Désignation'}
+                      </th>
+                      <th className="py-1.5 text-center">{isRTL ? 'الكمية' : 'Qté'}</th>
+                      <th className="py-1.5 text-end">{isRTL ? 'المجموع' : 'Total'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-dashed divide-gray-400">
+                    {sale.items.map((item, idx) => {
+                      const lineTotal = item.quantity * item.price;
+                      return (
+                        <tr key={idx} className={item.isReturned ? 'line-through opacity-60' : ''}>
+                          <td className="py-1.5 pr-1 font-mono align-top">{idx + 1}</td>
+                          <td className="py-1.5 align-top">
+                            <div className="font-bold text-black">
+                              {item.name}
+                              {item.type === 'wholesale' && (
+                                <span className="text-[10px] font-normal">
+                                  {' '}
+                                  ({isRTL ? 'جملة' : 'Gros'})
+                                </span>
+                              )}
+                              {item.isReturned && (
+                                <span className="text-[10px] font-bold">
+                                  {' '}
+                                  [{isRTL ? 'مسترجع' : 'RETOURNÉ'}]
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-black">
+                              {item.quantity} x {item.price.toFixed(2)} DH
+                            </div>
                             {item.imei && (
-                              <div
-                                style={{
-                                  fontFamily: 'monospace',
-                                  fontSize: isCompact ? '9px' : '10px',
-                                  fontWeight: 600,
-                                }}
-                                dir="ltr"
-                              >
+                              <div className="imei-badge font-mono text-[10px] border border-black px-1.5 py-0.5 rounded inline-block mt-0.5 bg-gray-50">
                                 IMEI: {item.imei}
                               </div>
                             )}
-                            {item.quantity > 1 && (
-                              <div style={{ fontSize: '9.5px', fontFamily: 'monospace' }}>
-                                {item.quantity} x {item.price} DH
-                              </div>
-                            )}
                           </td>
-                          <td
-                            style={{
-                              textAlign: 'center',
-                              padding: '4px 2px',
-                              fontFamily: 'monospace',
-                              fontWeight: 700,
-                              verticalAlign: 'top',
-                            }}
-                          >
+                          <td className="py-1.5 text-center font-mono align-top">
                             {item.quantity}
                           </td>
-                          <td
-                            style={{
-                              textAlign: isAr ? 'left' : 'right',
-                              padding: '4px 0',
-                              fontFamily: 'monospace',
-                              fontWeight: 800,
-                              verticalAlign: 'top',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {(item.price * item.quantity).toFixed(0)} {isAr ? 'د.م' : 'DH'}
+                          <td className="py-1.5 text-end font-mono font-bold align-top">
+                            {lineTotal.toFixed(2)}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      );
+                    })}
+                  </tbody>
+                </table>
 
-                  <div style={{ borderTop: '1.5px dashed #000000', margin: '6px 0' }} />
+                {/* Totals Block */}
+                <div className="border-t-2 border-black pt-2 space-y-1 text-xs">
+                  {(hasDiscount || hasReturns) && (
+                    <div className="flex justify-between">
+                      <span>{isRTL ? 'المجموع الفرعي:' : 'Sous-total:'}</span>
+                      <span className="font-mono font-bold">{rawSubtotal.toFixed(2)} DH</span>
+                    </div>
+                  )}
 
-                  {/* 4. TOTALS */}
-                  <div style={{ fontSize: isCompact ? '10.5px' : '11.5px' }}>
-                    {sale.discountAmount && sale.discountAmount > 0 ? (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>{isAr ? 'المجموع الفرعي:' : 'Sous-total:'}</span>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                            {(sale.subtotal || sale.totalAmount + sale.discountAmount).toFixed(0)}{' '}
-                            {isAr ? 'درهم' : 'DH'}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>{isAr ? 'تخفيض (Remise):' : 'Remise:'}</span>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                            -{sale.discountAmount.toFixed(0)} {isAr ? 'درهم' : 'DH'}
-                          </span>
-                        </div>
-                      </>
-                    ) : null}
-
-                    {sale.returns && sale.returns.length > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{isAr ? 'مرتجعات (Retours):' : 'Retours:'}</span>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                          -
-                          {sale.returns
-                            .reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
-                            .toFixed(0)}{' '}
-                          {isAr ? 'درهم' : 'DH'}
-                        </span>
-                      </div>
-                    )}
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: isCompact ? '13px' : '15px',
-                        fontWeight: 800,
-                        margin: '3px 0',
-                      }}
-                    >
-                      <span>{isAr ? 'المجموع الصافي:' : 'TOTAL NET:'}</span>
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {getNetTotal(sale).toFixed(0)} {isAr ? 'درهم' : 'DH'}
+                  {hasDiscount && (
+                    <div className="flex justify-between">
+                      <span>
+                        {isRTL ? 'التخفيض الممنوح:' : 'Remise accordée:'}
+                        {sale.discountType === 'percent' && sale.discountValue
+                          ? ` (${sale.discountValue}%)`
+                          : ''}
+                      </span>
+                      <span className="font-mono font-bold">
+                        - {(sale.discountAmount || 0).toFixed(2)} DH
                       </span>
                     </div>
+                  )}
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'المبلغ المدفوع:' : 'Montant payé:'}</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                        {sale.paidAmount.toFixed(0)} {isAr ? 'درهم' : 'DH'}
-                      </span>
+                  {hasReturns && (
+                    <div className="flex justify-between">
+                      <span>{isRTL ? 'مرتجعات مسجلة:' : 'Retours enregistrés:'}</span>
+                      <span className="font-mono font-bold">- {returnedSum.toFixed(2)} DH</span>
                     </div>
+                  )}
 
-                    {sale.remainingAmount > 0 && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontWeight: 800,
-                          borderTop: '1px dotted #000',
-                          paddingTop: '2px',
-                          marginTop: '2px',
-                        }}
-                      >
-                        <span>{isAr ? 'الباقي (الكريدي):' : 'Reste à payer:'}</span>
-                        <span style={{ fontFamily: 'monospace' }}>
-                          {sale.remainingAmount.toFixed(0)} {isAr ? 'درهم' : 'DH'}
-                        </span>
-                      </div>
-                    )}
+                  <div className="flex justify-between text-sm font-extrabold border-y border-black py-1.5 my-1 bg-gray-100 px-1.5 rounded">
+                    <span>{isRTL ? 'المجموع الصافي:' : 'TOTAL NET:'}</span>
+                    <span className="font-mono">{netTotal.toFixed(2)} DH</span>
                   </div>
 
-                  {/* 5. WARRANTY SECTION */}
-                  <div style={{ borderTop: '1px dashed #000000', margin: '6px 0' }} />
-                  <div style={{ textAlign: 'center', fontSize: isCompact ? '10px' : '11px' }}>
-                    {sale.hasWarranty && sale.warrantyMonths > 0 ? (
-                      <div style={{ fontWeight: 800 }}>
-                        ★{' '}
-                        {isAr
-                          ? `ضمان لمدة ${sale.warrantyMonths} شهراً (إلى غاية ${getWarrantyEndStr(sale)})`
-                          : `Garantie ${sale.warrantyMonths} mois (jusqu'au ${getWarrantyEndStr(sale)})`}{' '}
-                        ★
-                      </div>
-                    ) : (
-                      <div style={{ fontWeight: 600 }}>
-                        {isAr ? 'بدون ضمان (Sans garantie)' : 'Vendu sans garantie'}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* REPAIR RECEIPT (DEPOSIT OR DELIVERY) */}
-              {repair && (
-                <>
-                  <div style={{ textAlign: 'center', marginBottom: '6px' }}>
-                    <div
-                      style={{
-                        fontSize: isCompact ? '12px' : '14px',
-                        fontWeight: 800,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {repairType === 'delivery'
-                        ? isAr
-                          ? 'وصل تسليم إصلاح'
-                          : 'BON DE LIVRAISON RÉPARATION'
-                        : isAr
-                        ? 'وصل إيداع للإصلاح'
-                        : 'TICKET DE DÉPÔT RÉPARATION'}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: isCompact ? '12px' : '13px',
-                        fontFamily: 'monospace',
-                        fontWeight: 800,
-                      }}
-                    >
-                      N° {repair.repairNumber}
-                      {repair.repairNumber?.startsWith('R-L-') ? ' (N° PROVISOIRE)' : ''}
-                    </div>
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'المبلغ المؤدى:' : 'Montant versé:'}</span>
+                    <span className="font-mono font-bold">{sale.paidAmount.toFixed(2)} DH</span>
                   </div>
 
-                  <div style={{ fontSize: isCompact ? '10px' : '11px', marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'تاريخ الإيداع:' : 'Date dépôt:'}</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                        {repair.intakeDate}
-                      </span>
+                  <div className="flex justify-between font-extrabold pt-0.5">
+                    <span>{isRTL ? 'الباقي (كريدي):' : 'Reste dû (Crédit):'}</span>
+                    <span className="font-mono">
+                      {sale.remainingAmount > 0
+                        ? `${sale.remainingAmount.toFixed(2)} DH`
+                        : isRTL
+                        ? 'خالص 100% (0.00 DH)'
+                        : 'RÉGLÉ 100% (0.00 DH)'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Warranty & Conditions Note */}
+                {(sale.warrantyMonths > 0 || settings.defaultWarrantyMonths > 0) && (
+                  <div className="mt-3 p-2 border border-black rounded text-[11px] bg-gray-50">
+                    <div className="font-bold">
+                      🛡️ {isRTL ? 'الضمان:' : 'Garantie:'}{' '}
+                      {sale.warrantyMonths || settings.defaultWarrantyMonths}{' '}
+                      {isRTL ? 'أشهر' : 'mois'}
                     </div>
-                    {repair.expectedDeliveryDate && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{isAr ? 'تاريخ التسليم المتوقع:' : 'Livraison prévue:'}</span>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                          {repair.expectedDeliveryDate}
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'الزبون:' : 'Client:'}</span>
-                      <span style={{ fontWeight: 700 }}>{repair.customerName}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'الهاتف:' : 'Tél:'}</span>
-                      <span style={{ fontFamily: 'monospace' }} dir="ltr">
-                        {repair.customerPhone}
-                      </span>
+                    <div className="text-[10px] mt-0.5">
+                      {isRTL
+                        ? 'الضمان لا يشمل الكسر أو الماء أو سوء الاستعمال. يرجى الاحتفاظ بهذا البون.'
+                        : "La garantie n'inclut pas la casse, l'oxydation ou mauvaise utilisation."}
                     </div>
                   </div>
+                )}
+              </>
+            )}
 
-                  <div style={{ borderTop: '1px dashed #000000', margin: '5px 0' }} />
-
-                  {/* Device Info */}
-                  <div style={{ fontSize: isCompact ? '10.5px' : '11.5px', marginBottom: '6px' }}>
-                    <div style={{ fontWeight: 800 }}>
-                      {isAr ? 'الجهاز:' : 'Appareil:'} {repair.brand} {repair.model}
-                    </div>
-                    {repair.imei && (
-                      <div style={{ fontFamily: 'monospace', fontSize: '10px' }} dir="ltr">
-                        IMEI / S/N: {repair.imei}
-                      </div>
-                    )}
-                    <div style={{ marginTop: '3px' }}>
-                      <strong>{isAr ? 'العطل المصرح به:' : 'Panne déclarée:'}</strong> {repair.issue}
-                    </div>
-                    {repair.conditionNotes && (
-                      <div style={{ fontSize: '10px', marginTop: '2px' }}>
-                        <strong>{isAr ? 'حالة الجهاز:' : 'État:'}</strong> {repair.conditionNotes}
-                      </div>
-                    )}
+            {/* Repair Receipt Body */}
+            {repair && (
+              <>
+                <div className="space-y-1 text-xs mb-3 border-b border-dashed border-black pb-2.5">
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'التاريخ:' : 'Date:'}</span>
+                    <span className="font-mono">{docDate}</span>
                   </div>
-
-                  <div style={{ borderTop: '1.5px dashed #000000', margin: '6px 0' }} />
-
-                  {/* Repair Financials */}
-                  <div style={{ fontSize: isCompact ? '11px' : '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
-                      <span>{isAr ? 'التكلفة المتفق عليها:' : 'Prix convenu:'}</span>
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {repair.agreedPrice.toFixed(0)} {isAr ? 'درهم' : 'DH'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{isAr ? 'التسبيق (Avance):' : 'Avance reçue:'}</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                        {repair.depositAmount.toFixed(0)} {isAr ? 'درهم' : 'DH'}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: isCompact ? '13px' : '14px',
-                        fontWeight: 800,
-                        marginTop: '3px',
-                        borderTop: '1px dotted #000',
-                        paddingTop: '2px',
-                      }}
-                    >
-                      <span>{isAr ? 'الباقي للأداء:' : 'Reste à payer:'}</span>
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {(repair.status === 'delivered' ? 0 : repair.remainingAmount).toFixed(0)}{' '}
-                        {isAr ? 'درهم' : 'DH'}
-                      </span>
-                    </div>
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'الزبون:' : 'Client:'}</span>
+                    <span className="font-bold">{repair.customerName}</span>
                   </div>
-
-                  <div style={{ borderTop: '1px dashed #000000', margin: '6px 0' }} />
-                  <div style={{ fontSize: '9px', textAlign: 'center', lineHeight: 1.25 }}>
-                    {isAr
-                      ? 'يرجى إحضار هذا الوصل عند استلام الجهاز. المحل غير مسؤول عن الأجهزة المتروكة أكثر من 30 يوماً.'
-                      : 'Veuillez présenter ce ticket lors du retrait. Le magasin décline toute responsabilité au-delà de 30 jours.'}
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'الهاتف:' : 'Tél:'}</span>
+                    <span className="font-mono" dir="ltr">{repair.customerPhone}</span>
                   </div>
-                </>
-              )}
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'الجهاز:' : 'Appareil:'}</span>
+                    <span className="font-bold">{repair.brand} {repair.model}</span>
+                  </div>
+                  {repair.imei && (
+                    <div className="flex justify-between">
+                      <span className="font-bold">IMEI:</span>
+                      <span className="font-mono">{repair.imei}</span>
+                    </div>
+                  )}
+                  <div className="pt-1 border-t border-dashed border-gray-400">
+                    <span className="font-bold">{isRTL ? 'العطل المصرح به:' : 'Panne déclarée:'}</span>
+                    <div className="mt-0.5">{repair.issue}</div>
+                  </div>
+                </div>
 
-              {/* 6. QR CODE & FOOTER */}
+                <div className="border-t-2 border-black pt-2 space-y-1 text-xs">
+                  <div className="flex justify-between text-sm font-extrabold border-y border-black py-1.5 my-1 bg-gray-100 px-1.5 rounded">
+                    <span>{isRTL ? 'تكلفة الإصلاح:' : 'COÛT RÉPARATION:'}</span>
+                    <span className="font-mono">{repair.agreedPrice.toFixed(2)} DH</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-bold">{isRTL ? 'التسبيق المؤدى:' : 'Avance versée:'}</span>
+                    <span className="font-mono font-bold">{repair.depositAmount.toFixed(2)} DH</span>
+                  </div>
+                  <div className="flex justify-between font-extrabold pt-0.5">
+                    <span>{isRTL ? 'الباقي للأداء:' : 'Reste à payer:'}</span>
+                    <span className="font-mono">{repair.remainingAmount.toFixed(2)} DH</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* QR Code & Footer */}
+            <div className="mt-4 pt-3 border-t border-dashed border-black text-center">
               {qrDataUrl && (
-                <div style={{ textAlign: 'center', marginTop: '8px' }}>
+                <div className="flex flex-col items-center justify-center mb-2">
                   <img
                     src={qrDataUrl}
                     alt="QR Code"
-                    style={{
-                      width: isCompact ? '76px' : '90px',
-                      height: isCompact ? '76px' : '90px',
-                      margin: '0 auto',
-                      display: 'block',
-                    }}
+                    className="w-24 h-24 object-contain border border-black p-1 rounded bg-white"
                   />
-                  <div
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      marginTop: '2px',
-                    }}
-                  >
-                    {sale ? sale.bonNumber : repair?.repairNumber}
-                  </div>
-                  {repair && (
-                    <div
-                      style={{
-                        fontSize: '8.5px',
-                        fontWeight: 700,
-                        marginTop: '2px',
-                      }}
-                    >
-                      {isAr
-                        ? '📱 امسح رمز QR لتتبع حالة الإصلاح مباشرة'
-                        : '📱 Scanner le QR pour suivre la réparation en direct'}
-                    </div>
-                  )}
+                  <span className="text-[10px] font-mono mt-1">
+                    {isRTL
+                      ? 'امسح رمز QR للتحقق من الضمان أو تتبع الإصلاح'
+                      : 'Scannez pour vérifier la garantie ou le suivi'}
+                  </span>
                 </div>
               )}
-
-              <div
-                style={{
-                  textAlign: 'center',
-                  fontSize: isCompact ? '9.5px' : '10.5px',
-                  fontWeight: 700,
-                  marginTop: '6px',
-                }}
-              >
-                {isAr ? 'شكراً لثقتكم وزيارتكم!' : 'Merci de votre confiance !'}
+              <div className="font-extrabold text-xs mt-1">
+                {isRTL ? 'شكراً لثقتكم وزيارتكم!' : 'MERCI POUR VOTRE CONFIANCE !'}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom Action Bar */}
-        <div className="p-3.5 bg-neutral-950 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-2.5">
+        {/* Bottom Actions */}
+        <div className="p-4 bg-[#1E1E24] border-t border-[#282830] flex items-center justify-end gap-3">
           <button
-            type="button"
-            onClick={handleDownloadPdf}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-semibold text-xs transition"
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl bg-[#282830] text-gray-300 hover:text-white text-sm font-bold transition"
           >
-            <FileDown className="w-4 h-4 text-amber-400" />
-            <span>{language === 'ar' ? 'تحميل PDF A4' : 'Télécharger PDF A4'}</span>
+            إغلاق
           </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium text-xs transition"
-            >
-              {language === 'ar' ? 'إغلاق' : 'Fermer'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleBrowserPrint}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-xs transition shadow-md active:scale-95"
-            >
-              <Printer className="w-4 h-4" />
-              <span>
-                {language === 'ar'
-                  ? `طباعة الوصل (${paperWidth})`
-                  : `Imprimer (${paperWidth})`}
-              </span>
-            </button>
-          </div>
+          <button
+            onClick={handleDirectPrint}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B5902B] text-black font-extrabold text-sm flex items-center gap-2 shadow-lg hover:brightness-110 transition"
+          >
+            <Printer className="w-4 h-4" />
+            <span>طباعة البون الآن ({paperWidth})</span>
+            <Check className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
   );
 };
+export default ReceiptPrintModal;

@@ -817,7 +817,7 @@ export const PosPage: React.FC<PosPageProps> = ({ onNavigateToBons }) => {
         {/* Left Column (7 cols): Catalog Search + Glass Product Cards + Cart */}
         <div className="lg:col-span-7 space-y-4">
           {/* Catalog Search & Category Filters */}
-          <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-4">
+          <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-4">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 flex-1 min-w-[220px]">
@@ -977,7 +977,7 @@ export const PosPage: React.FC<PosPageProps> = ({ onNavigateToBons }) => {
           </div>
 
           {/* Cart Table — Glass Card */}
-          <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-3">
+          <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-3">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-black text-white flex items-center gap-2">
@@ -1135,7 +1135,7 @@ export const PosPage: React.FC<PosPageProps> = ({ onNavigateToBons }) => {
 
         {/* Right Column (5 cols): Customer, Payment, Total & Print */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-4 text-xs">
+          <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-4 text-xs">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
             {/* Customer Header */}
             <div>

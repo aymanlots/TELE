@@ -290,12 +290,12 @@ export function AppContent() {
           <img
             src="/shop-bg.jpg"
             alt=""
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-top"
           />
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+          <div className="absolute inset-0 bg-black/25" />
         </div>
-        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-lg animate-pulse uppercase relative z-10">
-          {storeName ? storeName.charAt(0).toUpperCase() : 'G'}
+        <div className="w-14 h-14 rounded-2xl bg-black border border-amber-400/60 flex items-center justify-center animate-pulse relative z-10 overflow-hidden shadow-lg">
+          <img src="/assets/aistudio/image_e43ac3cd.png" alt="Golden Shop" className="w-full h-full object-cover" />
         </div>
         <p className="text-xs text-neutral-200 font-medium relative z-10">
           {language === 'ar' ? 'جاري التحميل...' : 'Chargement...'}
@@ -340,18 +340,18 @@ export function AppContent() {
         theme === 'light' ? 'text-stone-900' : 'text-white'
       }`}
     >
-      {/* FIXED LUXURY SHOP INTERIOR BACKGROUND (Dark Mode vs Day/Light Mode) */}
+      {/* FIXED LUXURY SHOP INTERIOR BACKGROUND (object-cover object-top so luxury lamps, Golden Shop logo & TVs are framed cleanly) */}
       <div aria-hidden="true" className="fixed inset-0 z-0 pointer-events-none overflow-hidden no-print">
         <img
           src="/shop-bg.jpg"
           alt=""
-          className="w-full h-full object-cover object-center"
+          className="w-full h-full object-cover object-top"
         />
         <div
           className={`absolute inset-0 transition-colors duration-300 ${
             theme === 'light'
-              ? 'bg-[#FAF7F0]/90 backdrop-blur-[6px]'
-              : 'bg-black/40 backdrop-blur-[2px]'
+              ? 'bg-[#FAF7F0]/75'
+              : 'bg-black/25'
           }`}
         />
       </div>
@@ -375,11 +375,13 @@ export function AppContent() {
         />
       )}
 
-      {/* MAIN LAYOUT: Right Sidebar (280px) + Left Column (Top Control & Search Bar -> Content) */}
+      {/* MAIN LAYOUT: Full-Width Screen (Sidebar docked right against screen edge, content fills 100% with no empty voids) */}
       <div
         className={`relative z-10 w-full ${
-          isMobileMode ? 'max-w-[640px]' : 'max-w-[1440px]'
-        } mx-auto px-3 sm:px-5 pt-4 pb-8 flex-1 flex flex-row items-start gap-4`}
+          isMobileMode
+            ? 'max-w-[640px] mx-auto px-2 sm:px-4'
+            : 'w-full max-w-none px-2 sm:px-3 lg:px-5'
+        } pt-2.5 sm:pt-3.5 pb-8 flex-1 flex flex-row items-start gap-3 lg:gap-4`}
       >
         {/* RIGHT SIDEBAR (Visible in PC Mode) */}
         {!isMobileMode && (
@@ -409,7 +411,7 @@ export function AppContent() {
                 <button
                   type="button"
                   onClick={() => setIsSidebarOpenMobile((prev) => !prev)}
-                  className="p-3 rounded-[18px] bg-black/65 backdrop-blur-xl border border-yellow-500/25 text-amber-300 hover:bg-black/80 transition md:hidden cursor-pointer shrink-0"
+                  className="p-3 rounded-[18px] bg-black/35 backdrop-blur-md border border-amber-500/30 text-amber-300 hover:bg-black/50 transition md:hidden cursor-pointer shrink-0"
                   aria-label="Menu"
                   title={language === 'ar' ? 'القائمة الجانبية' : 'Menu'}
                 >
@@ -420,10 +422,12 @@ export function AppContent() {
               <button
                 type="button"
                 onClick={() => setIsSearchOpen(true)}
-                className="flex-1 min-w-0 bg-black/65 hover:bg-black/75 backdrop-blur-xl border border-yellow-500/25 rounded-[20px] px-4 py-2.5 sm:py-3 flex items-center justify-start gap-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] transition cursor-pointer"
+                className="flex-1 min-w-0 bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 hover:border-amber-400/50 rounded-2xl px-4 py-2.5 sm:py-3 flex items-center justify-start gap-3 shadow-[0_8px_32px_rgba(0,0,0,0.45)] transition cursor-pointer"
               >
-                <Search className="w-4 h-4 text-[#FFD700] shrink-0" />
-                <span className="text-xs sm:text-sm font-bold text-white/90 truncate">
+                <div className="w-7 h-7 rounded-lg bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-amber-400 shrink-0">
+                  <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                </div>
+                <span className="text-xs sm:text-sm font-bold text-white/95 truncate drop-shadow">
                   {language === 'ar'
                     ? 'ابحث بالاسم أو الباركود أو IMEI'
                     : 'Rechercher par nom, code-barres ou IMEI'}
@@ -437,10 +441,10 @@ export function AppContent() {
               <button
                 type="button"
                 onClick={toggleViewMode}
-                className={`px-3 py-2 sm:py-2.5 rounded-[16px] backdrop-blur-xl border flex items-center gap-1.5 text-xs font-extrabold transition cursor-pointer shadow-md ${
+                className={`px-3 py-2 sm:py-2.5 rounded-2xl backdrop-blur-md border flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md ${
                   !isMobileMode
-                    ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black border-yellow-200'
-                    : 'bg-black/65 hover:bg-black/80 text-[#FFD700] border-yellow-500/25'
+                    ? 'bg-amber-400 text-neutral-950 border-amber-300'
+                    : 'bg-black/35 hover:bg-black/45 text-amber-400 border-amber-500/30'
                 }`}
                 title={
                   isMobileMode
@@ -452,17 +456,22 @@ export function AppContent() {
                     : 'Passer en Mode Mobile'
                 }
               >
-                {isMobileMode ? (
-                  <>
-                    <Monitor className="w-4 h-4 shrink-0" />
-                    <span>{language === 'ar' ? 'وضع PC' : 'Mode PC'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Smartphone className="w-4 h-4 shrink-0" />
-                    <span>{language === 'ar' ? 'وضع الهاتف' : 'Mobile'}</span>
-                  </>
-                )}
+                <div className="w-6 h-6 rounded-lg bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0">
+                  {isMobileMode ? (
+                    <Monitor className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                </div>
+                <span>
+                  {isMobileMode
+                    ? language === 'ar'
+                      ? 'وضع PC'
+                      : 'Mode PC'
+                    : language === 'ar'
+                    ? 'وضع الهاتف'
+                    : 'Mobile'}
+                </span>
               </button>
 
               {/* 2. Day / Night Theme Switcher Button */}
@@ -476,11 +485,7 @@ export function AppContent() {
                     await saveStoreSettings({ ...s, theme: next });
                   } catch {}
                 }}
-                className={`px-3 py-2 sm:py-2.5 rounded-[16px] backdrop-blur-xl border flex items-center gap-1.5 text-xs font-extrabold transition cursor-pointer shadow-md ${
-                  theme === 'light'
-                    ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black border-yellow-200'
-                    : 'bg-black/65 hover:bg-black/80 text-[#FFD700] border-yellow-500/25'
-                }`}
+                className="px-3 py-2 sm:py-2.5 rounded-2xl bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 text-white flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md"
                 title={
                   theme === 'dark'
                     ? language === 'ar'
@@ -491,17 +496,22 @@ export function AppContent() {
                     : 'Activer le Mode Sombre'
                 }
               >
-                {theme === 'dark' ? (
-                  <>
-                    <Sun className="w-4 h-4 shrink-0 text-[#FFD700]" />
-                    <span>{language === 'ar' ? 'نهاري' : 'Clair'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-4 h-4 shrink-0 text-black" />
-                    <span>{language === 'ar' ? 'ليلي' : 'Sombre'}</span>
-                  </>
-                )}
+                <div className="w-6 h-6 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center text-amber-400 shrink-0">
+                  {theme === 'dark' ? (
+                    <Sun className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  ) : (
+                    <Moon className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  )}
+                </div>
+                <span>
+                  {theme === 'dark'
+                    ? language === 'ar'
+                      ? 'نهاري'
+                      : 'Clair'
+                    : language === 'ar'
+                    ? 'ليلي'
+                    : 'Sombre'}
+                </span>
               </button>
 
               {/* 3. Language Switcher Button (AR / FR) */}
@@ -515,10 +525,12 @@ export function AppContent() {
                     await saveStoreSettings({ ...s, language: nextLang });
                   } catch {}
                 }}
-                className="px-3 py-2 sm:py-2.5 rounded-[16px] bg-black/65 hover:bg-black/80 backdrop-blur-xl border border-yellow-500/25 text-[#FFD700] flex items-center gap-1.5 text-xs font-extrabold transition cursor-pointer shadow-md"
+                className="px-3 py-2 sm:py-2.5 rounded-2xl bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 text-amber-400 flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md"
                 title={language === 'ar' ? 'تغيير اللغة (FR / AR)' : 'Changer la langue (AR / FR)'}
               >
-                <Globe className="w-4 h-4 shrink-0" />
+                <div className="w-6 h-6 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center text-amber-400 shrink-0">
+                  <Globe className="w-3.5 h-3.5 shrink-0" />
+                </div>
                 <span className="font-mono">{language === 'ar' ? 'FR' : 'AR'}</span>
               </button>
 
@@ -527,10 +539,10 @@ export function AppContent() {
                 <button
                   type="button"
                   onClick={() => setIsApprovalsOpen(true)}
-                  className={`px-3 py-2 sm:py-2.5 rounded-[16px] backdrop-blur-xl border flex items-center gap-1.5 text-xs font-black transition cursor-pointer shadow-md ${
+                  className={`px-3 py-2 sm:py-2.5 rounded-2xl backdrop-blur-md border flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md ${
                     pendingApprovals.length > 0
-                      ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black border-yellow-200 animate-pulse'
-                      : 'bg-black/65 hover:bg-black/80 text-[#FFD700] border-yellow-500/25'
+                      ? 'bg-amber-400 text-neutral-950 border-amber-300 animate-pulse'
+                      : 'bg-black/35 hover:bg-black/45 text-amber-400 border-amber-500/30'
                   }`}
                   title={
                     language === 'ar'
@@ -538,12 +550,14 @@ export function AppContent() {
                       : "Demandes d'approbation de l'employé"
                   }
                 >
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <div className="w-6 h-6 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  </div>
                   <span className="hidden md:inline">
                     {language === 'ar' ? 'موافقات العامل' : 'Approbations'}
                   </span>
                   {pendingApprovals.length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-black text-[#FFD700] font-mono text-[10px] font-black">
+                    <span className="px-1.5 py-0.5 rounded-full bg-neutral-950 text-amber-400 font-mono text-[10px] font-black">
                       {pendingApprovals.length}
                     </span>
                   )}
@@ -554,10 +568,10 @@ export function AppContent() {
               <button
                 type="button"
                 onClick={() => openUpgradeModal('repairs')}
-                className={`px-3 py-2 sm:py-2.5 rounded-[16px] backdrop-blur-xl border flex items-center gap-1.5 text-xs font-black transition cursor-pointer shadow-md ${
+                className={`px-3 py-2 sm:py-2.5 rounded-2xl backdrop-blur-md border flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md ${
                   planTier === 'pro'
-                    ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black border-yellow-200 shadow-[0_2px_12px_rgba(245,208,76,0.35)]'
-                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-400 shadow-[0_2px_12px_rgba(59,130,246,0.3)]'
+                    ? 'bg-amber-400 hover:bg-amber-300 text-neutral-950 border-amber-300'
+                    : 'bg-black/35 hover:bg-black/45 text-amber-400 border-amber-500/30'
                 }`}
                 title={
                   language === 'ar'
@@ -565,7 +579,9 @@ export function AppContent() {
                     : 'Version du logiciel / Activer abonnement'
                 }
               >
-                <Crown className="w-3.5 h-3.5 shrink-0 fill-current" />
+                <div className="w-6 h-6 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0">
+                  <Crown className="w-3.5 h-3.5 shrink-0 fill-current" />
+                </div>
                 <span>
                   {subscriptionType === 'trial'
                     ? language === 'ar'
@@ -581,10 +597,12 @@ export function AppContent() {
               <button
                 type="button"
                 onClick={lock}
-                className="px-3 py-2 sm:py-2.5 rounded-[16px] bg-black/65 hover:bg-rose-500/20 backdrop-blur-xl border border-yellow-500/25 hover:border-rose-500/40 text-amber-300 hover:text-rose-300 flex items-center gap-1.5 text-xs font-extrabold transition cursor-pointer shadow-md"
+                className="px-3 py-2 sm:py-2.5 rounded-2xl bg-black/35 hover:bg-rose-500/25 backdrop-blur-md border border-amber-500/30 hover:border-rose-500/50 text-amber-400 hover:text-rose-300 flex items-center gap-2 text-xs font-black transition cursor-pointer shadow-md"
                 title={language === 'ar' ? 'قفل الشاشة / تبديل الحساب' : 'Verrouiller / Changer de compte'}
               >
-                <Lock className="w-4 h-4 shrink-0" />
+                <div className="w-6 h-6 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center shrink-0">
+                  <Lock className="w-3.5 h-3.5 shrink-0" />
+                </div>
                 <span>{language === 'ar' ? 'قفل' : 'Verrouiller'}</span>
               </button>
             </div>

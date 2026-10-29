@@ -656,38 +656,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   return (
     <div className="w-full space-y-4">
       {/* ========================================================
-          ROW 1: 3 TOP LIQUID GLASS CARDS (Directly under Search Bar)
-          Style: bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px]
+          ROW 1: 3 TOP KPI CARDS (Centered content, unified rounded-2xl p-5, translucent frosted glass)
           ======================================================== */}
       <div dir="ltr" className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* CARD 1 (LEFT): مبيعات وطلبات اليوم */}
         <div
           onClick={() => onNavigate('bons')}
-          className="bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.2)] hover:scale-[1.02] transition-all duration-300 flex flex-col items-center justify-between text-center cursor-pointer relative overflow-hidden min-h-[245px]"
+          className="bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 hover:border-amber-400/50 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] transition-all duration-200 flex flex-col items-center justify-center gap-3 text-center cursor-pointer relative overflow-hidden min-h-[210px]"
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                'radial-gradient(circle at 50% 48%, rgba(255, 200, 50, 0.16) 0%, transparent 68%)',
-            }}
-          />
-
-          <h2 className="relative z-10 text-lg sm:text-xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.75)]">
+          <h2 className="relative z-10 text-base sm:text-lg font-extrabold text-white tracking-tight drop-shadow">
             {isAr ? 'مبيعات وطلبات اليوم' : "Ventes & Commandes d'Aujourd'hui"}
           </h2>
 
-          <div className="relative z-10 my-2 flex items-center justify-center">
+          <div className="relative z-10 flex items-center justify-center">
             <GoldMoneyStack3D />
           </div>
 
-          <div className="relative z-10 space-y-1">
-            <div className="text-3xl sm:text-4xl font-black tracking-tight drop-shadow-[0_3px_10px_rgba(0,0,0,0.75)]">
+          <div className="relative z-10 space-y-0.5">
+            <div className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow">
               <span className="text-white">DH </span>
-              <span className="text-[#FFD700]">{formatDec(todayRevenue)}</span>
+              <span className="text-amber-400">{formatDec(todayRevenue)}</span>
             </div>
-            <div className="text-xs sm:text-sm font-bold text-white/95" dir={isAr ? 'rtl' : 'ltr'}>
+            <div className="text-xs font-bold text-neutral-200 drop-shadow" dir={isAr ? 'rtl' : 'ltr'}>
               {isAr
                 ? `عدد الطلبات اليوم: ${ordersTodayCount}`
                 : `Nombre de commandes : ${ordersTodayCount}`}
@@ -698,30 +688,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         {/* CARD 2 (CENTER): صافي الأرباح اليوم */}
         <div
           onClick={() => onNavigate('reports')}
-          className="bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.2)] hover:scale-[1.02] transition-all duration-300 flex flex-col items-center justify-between text-center cursor-pointer relative overflow-hidden min-h-[245px]"
+          className="bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 hover:border-amber-400/50 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] transition-all duration-200 flex flex-col items-center justify-center gap-3 text-center cursor-pointer relative overflow-hidden min-h-[210px]"
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                'radial-gradient(circle at 50% 48%, rgba(255, 200, 50, 0.16) 0%, transparent 68%)',
-            }}
-          />
-
-          <h2 className="relative z-10 text-lg sm:text-xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.75)]">
+          <h2 className="relative z-10 text-base sm:text-lg font-extrabold text-white tracking-tight drop-shadow">
             {isAr ? 'صافي الأرباح اليوم' : "Bénéfice Net d'Aujourd'hui"}
           </h2>
 
-          <div className="relative z-10 my-2 flex items-center justify-center">
+          <div className="relative z-10 flex items-center justify-center">
             <GoldTrendChart3D />
           </div>
 
-          <div className="relative z-10 space-y-1">
-            <div className="text-3xl sm:text-4xl font-black tracking-tight text-[#22c55e] drop-shadow-[0_3px_12px_rgba(34,197,94,0.35)]">
+          <div className="relative z-10 space-y-0.5">
+            <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-400 drop-shadow">
               DH {formatDec(netProfitValue)}
             </div>
-            <div className="text-xs sm:text-sm font-bold text-[#22c55e]" dir={isAr ? 'rtl' : 'ltr'}>
+            <div className="text-xs font-bold text-emerald-400/90 drop-shadow" dir={isAr ? 'rtl' : 'ltr'}>
               {isAr ? `رقم المعاملات: ${ordersTodayCount}` : `Transactions : ${ordersTodayCount}`}
             </div>
           </div>
@@ -730,30 +711,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         {/* CARD 3 (RIGHT): قيمة المخزون الجماعية */}
         <div
           onClick={() => onNavigate('stock')}
-          className="bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.2)] hover:scale-[1.02] transition-all duration-300 flex flex-col items-center justify-between text-center cursor-pointer relative overflow-hidden min-h-[245px]"
+          className="bg-black/35 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 hover:border-amber-400/50 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] transition-all duration-200 flex flex-col items-center justify-center gap-3 text-center cursor-pointer relative overflow-hidden min-h-[210px]"
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                'radial-gradient(circle at 50% 48%, rgba(255, 200, 50, 0.16) 0%, transparent 68%)',
-            }}
-          />
-
-          <h2 className="relative z-10 text-lg sm:text-xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_6px_rgba(0,0,0,0.75)]">
+          <h2 className="relative z-10 text-base sm:text-lg font-extrabold text-white tracking-tight drop-shadow">
             {isAr ? 'قيمة المخزون الجماعية' : 'Valeur Globale du Stock'}
           </h2>
 
-          <div className="relative z-10 my-2 flex items-center justify-center">
+          <div className="relative z-10 flex items-center justify-center">
             <GoldInventoryBox3D />
           </div>
 
-          <div className="relative z-10 space-y-1">
-            <div className="text-3xl sm:text-4xl font-black tracking-tight text-white drop-shadow-[0_3px_10px_rgba(0,0,0,0.75)]">
+          <div className="relative z-10 space-y-0.5">
+            <div className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow">
               DH {formatDec(totalStockValue)}
             </div>
-            <div className="text-xs sm:text-sm font-bold text-white/95">
+            <div className="text-xs font-bold text-neutral-200 drop-shadow">
               {inStockPercentage}% • {inventoryCount}-{totalUnitsInStock}{' '}
               {isAr ? 'قطعة SKU' : 'unités SKU'}
             </div>
@@ -763,36 +735,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
       {/* ========================================================
           ROW 2: BIG 3D CHART & CURVE CARD BOTTOM (مبيان ومنحنى المشروع)
-          Style: bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px]
           ======================================================== */}
       <div
         dir="ltr"
-        className="bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 sm:p-7 shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.2)] relative overflow-hidden min-h-[370px] flex flex-col justify-between"
+        className="bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.12)] relative overflow-hidden min-h-[350px] flex flex-col justify-between"
       >
-        {/* Warm Golden Floor Glow Behind the 3D Bars & Curve */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(ellipse 65% 55% at 52% 76%, rgba(255, 200, 55, 0.22) 0%, rgba(212, 175, 55, 0.05) 55%, transparent 80%)',
-          }}
-        />
-
         {/* Top Bar: Left Mode Switcher Pills + Right Title & Retail Valuation */}
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 w-full">
           {/* Left Switcher: Toggle between Project Sections & Last 7 Days Curve */}
           <div
             dir={isAr ? 'rtl' : 'ltr'}
-            className="inline-flex items-center gap-1.5 bg-black/60 backdrop-blur-xl border border-yellow-500/25 rounded-2xl p-1"
+            className="inline-flex items-center gap-1.5 bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-xl p-1"
           >
             <button
               type="button"
               onClick={() => setChartViewMode('sections')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
                 chartViewMode === 'sections'
-                  ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black shadow-[0_0_16px_rgba(255,215,0,0.4)]'
-                  : 'text-white/80 hover:text-white hover:bg-white/10'
+                  ? 'bg-amber-400 text-neutral-950'
+                  : 'text-white/90 hover:text-white hover:bg-white/10'
               }`}
             >
               {isAr ? 'مبيان ومنحنى أقسام المشروع' : 'Graphique des Rubriques'}
@@ -800,10 +761,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             <button
               type="button"
               onClick={() => setChartViewMode('days')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
                 chartViewMode === 'days'
-                  ? 'bg-gradient-to-r from-yellow-500 to-amber-300 text-black shadow-[0_0_16px_rgba(255,215,0,0.4)]'
-                  : 'text-white/80 hover:text-white hover:bg-white/10'
+                  ? 'bg-amber-400 text-neutral-950'
+                  : 'text-white/90 hover:text-white hover:bg-white/10'
               }`}
             >
               {isAr ? 'منحنى الأداء (آخر 7 أيام)' : 'Performance (7 derniers jours)'}
@@ -814,7 +775,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           <div className="flex flex-col items-end text-right ms-auto">
             <h2
               dir={isAr ? 'rtl' : 'ltr'}
-              className="text-xl sm:text-2xl font-extrabold text-[#FFD700] tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+              className="text-lg sm:text-xl font-extrabold text-amber-400 tracking-tight drop-shadow"
             >
               {chartViewMode === 'sections'
                 ? isAr
@@ -824,7 +785,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                 ? 'منحنى الأداء المالي والمبيعات (آخر 7 أيام)'
                 : 'Courbe des Ventes & Performances (7 derniers jours)'}
             </h2>
-            <p dir={isAr ? 'rtl' : 'ltr'} className="text-xs sm:text-sm font-bold text-white/95 mt-1">
+            <p dir={isAr ? 'rtl' : 'ltr'} className="text-xs sm:text-sm font-bold text-white/95 mt-1 drop-shadow">
               {isAr ? 'القيمة البيعية الإجمالية للمخزون: ' : 'Valeur de vente totale du stock : '}
               <span dir="ltr" className="font-mono font-extrabold text-[#FFD700]">
                 DH {formatDec(totalRetailStockValue)}
@@ -840,7 +801,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             {/* STANDALONE NET PROFIT CARD (صافي الأرباح مستقل بوحدو خارج المبيان) */}
             <div
               onClick={() => onNavigate('reports')}
-              className="w-full bg-gradient-to-br from-emerald-950/75 via-black/75 to-black/80 hover:from-emerald-900/75 backdrop-blur-xl border border-emerald-400/40 rounded-[16px] p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.55),inset_0_1px_1px_rgba(74,222,128,0.25)] cursor-pointer transition"
+              className="w-full bg-emerald-950/35 hover:bg-emerald-900/45 backdrop-blur-md border border-emerald-400/40 rounded-[16px] p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(74,222,128,0.25)] cursor-pointer transition"
               dir={isAr ? 'rtl' : 'ltr'}
             >
               <div className="flex items-center justify-between border-b border-emerald-400/20 pb-1.5 mb-2">
@@ -857,7 +818,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               >
                 DH {formatDec(netProfitValue)}
               </div>
-              <div className="flex items-center justify-between text-[11px] font-semibold text-white/80 mt-1">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-white/85 mt-1">
                 <span>
                   {isAr ? `المعاملات اليوم: ${ordersTodayCount}` : `Ventes: ${ordersTodayCount}`}
                 </span>
@@ -871,7 +832,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             {/* Latest Sales Card: آخر الطلبات والمبيعات */}
             <div
               onClick={() => onNavigate('bons')}
-              className="w-full bg-white/10 hover:bg-white/15 backdrop-blur-xl border border-yellow-500/25 rounded-[16px] p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.3)] cursor-pointer transition"
+              className="w-full bg-black/30 hover:bg-black/45 backdrop-blur-md border border-amber-500/30 rounded-[16px] p-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.45),inset_0_1px_1px_rgba(255,255,255,0.2)] cursor-pointer transition"
             >
               <div
                 className="flex items-center justify-between border-b border-white/15 pb-1.5 mb-2"
@@ -913,9 +874,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setShowCashClosureModal(true)}
-                className="bg-black/60 hover:bg-yellow-500/20 border border-yellow-500/30 rounded-xl px-2.5 py-2 text-start transition flex flex-col justify-between"
+                className="bg-black/30 hover:bg-amber-500/20 backdrop-blur-md border border-amber-500/30 rounded-xl px-2.5 py-2 text-start transition flex flex-col justify-between cursor-pointer"
               >
-                <span className="text-[10px] font-bold text-white/70">
+                <span className="text-[10px] font-bold text-white/80">
                   {isAr ? 'صندوق اليوم' : 'Caisse du jour'}
                 </span>
                 <span className="text-xs font-extrabold text-[#FFD700] mt-0.5">
@@ -925,9 +886,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => setShowLowStockModal(true)}
-                className="bg-black/60 hover:bg-yellow-500/20 border border-yellow-500/30 rounded-xl px-2.5 py-2 text-start transition flex flex-col justify-between"
+                className="bg-black/30 hover:bg-amber-500/20 backdrop-blur-md border border-amber-500/30 rounded-xl px-2.5 py-2 text-start transition flex flex-col justify-between cursor-pointer"
               >
-                <span className="text-[10px] font-bold text-white/70">
+                <span className="text-[10px] font-bold text-white/80">
                   {isAr ? 'تنبيهات السلعة' : 'Alertes Stock'}
                 </span>
                 <span
@@ -965,18 +926,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               >
                 <defs>
                   <linearGradient id="goldCurveFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#FFD700" stopOpacity="0.28" />
-                    <stop offset="65%" stopColor="#F59E0B" stopOpacity="0.08" />
+                    <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.16" />
+                    <stop offset="65%" stopColor="#F59E0B" stopOpacity="0.04" />
                     <stop offset="100%" stopColor="#000000" stopOpacity="0" />
                   </linearGradient>
                   <linearGradient id="goldCurveStroke" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#FDE047" />
-                    <stop offset="50%" stopColor="#FFD700" />
-                    <stop offset="100%" stopColor="#FEF08A" />
+                    <stop offset="0%" stopColor="#FBBF24" />
+                    <stop offset="50%" stopColor="#F59E0B" />
+                    <stop offset="100%" stopColor="#FDE68A" />
                   </linearGradient>
-                  <filter id="curveGlow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="#FFD700" floodOpacity="0.65" />
-                  </filter>
                 </defs>
 
                 {svgCurveData.areaPath && (
@@ -988,10 +946,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                     d={svgCurveData.linePath}
                     fill="none"
                     stroke="url(#goldCurveStroke)"
-                    strokeWidth="3.5"
+                    strokeWidth="3"
                     strokeLinecap="round"
-                    strokeOpacity={svgCurveData.points.every((p) => p.isZero) ? 0.35 : 1}
-                    filter="url(#curveGlow)"
+                    strokeOpacity={svgCurveData.points.every((p) => p.isZero) ? 0.35 : 0.95}
                   />
                 )}
 
@@ -1000,28 +957,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                     <circle
                       cx={pt.x}
                       cy={pt.y}
-                      r={pt.isZero ? 4 : pt.isHero ? 7.5 : 5.5}
-                      fill={pt.isZero ? '#785C12' : '#FFD700'}
+                      r={pt.isZero ? 3.5 : pt.isHero ? 6.5 : 5}
+                      fill={pt.isZero ? '#785C12' : '#FBBF24'}
                       stroke="#FFFFFF"
-                      strokeOpacity={pt.isZero ? 0.5 : 1}
+                      strokeOpacity={pt.isZero ? 0.5 : 0.95}
                       strokeWidth={pt.isZero ? '1.5' : '2'}
                     />
-                    {!pt.isZero && (
-                      <circle
-                        cx={pt.x}
-                        cy={pt.y}
-                        r={pt.isHero ? 13 : 9.5}
-                        fill="none"
-                        stroke="#FFD700"
-                        strokeOpacity="0.45"
-                        strokeWidth="1.5"
-                      />
-                    )}
                   </g>
                 ))}
               </svg>
 
-              {/* 3D Liquid Gold Bars Row */}
+              {/* 3D Gold Bars Row */}
               <div className="relative z-10 flex items-end justify-between gap-2 sm:gap-3 h-[265px]">
                 {chartBars.map((bar, idx) => {
                   const isZero = bar.heightPx <= 0 || bar.rawVal <= 0;
@@ -1033,81 +979,47 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                     >
                       {/* Live Value Pill Above Each 3D Bar */}
                       <span
-                        className={`mb-2 px-2 py-0.5 rounded-lg text-[10px] font-mono font-extrabold whitespace-nowrap border transition-all duration-300 group-hover:scale-110 ${
+                        className={`mb-2 px-2 py-0.5 rounded-lg text-[10px] font-mono font-extrabold whitespace-nowrap border backdrop-blur-sm transition-all duration-200 ${
                           isZero
-                            ? 'bg-black/60 border-white/15 text-white/60'
+                            ? 'bg-black/40 border-white/15 text-white/75'
                             : bar.isHero
-                            ? 'bg-amber-500/25 border-yellow-400/60 text-[#FFD700] shadow-[0_0_12px_rgba(255,215,0,0.4)]'
-                            : 'bg-black/70 border-yellow-500/30 text-[#FFD700]'
+                            ? 'bg-amber-500/25 border-amber-400/50 text-amber-300'
+                            : 'bg-black/45 border-amber-500/30 text-amber-300'
                         }`}
                       >
                         {bar.valueStr}
                       </span>
 
-                      {/* 3D Glass Vial / Prism Container (0 height = flat 4px baseline marker at 0) */}
+                      {/* 3D Bar Container (No blinding yellow glow) */}
                       <div
-                        className="w-full max-w-[52px] rounded-t-[10px] rounded-b-[5px] relative overflow-hidden transition-all duration-500 group-hover:scale-105"
+                        className="w-full max-w-[48px] rounded-t-lg rounded-b-sm relative overflow-hidden transition-all duration-300"
                         style={
                           isZero
                             ? {
                                 height: '4px',
-                                background: 'rgba(255, 215, 0, 0.22)',
-                                borderTop: '1px solid rgba(255, 240, 175, 0.45)',
+                                background: 'rgba(245, 158, 11, 0.25)',
+                                borderTop: '1px solid rgba(251, 191, 36, 0.45)',
                               }
                             : {
                                 height: `${bar.heightPx}px`,
                                 background: bar.isHero
-                                  ? 'linear-gradient(90deg, #E2B032 0%, #FFFBE0 38%, #F5CF58 68%, #A6760E 100%)'
-                                  : 'linear-gradient(90deg, rgba(255,220,110,0.42) 0%, rgba(255,245,190,0.22) 25%, rgba(212,175,55,0.38) 65%, rgba(60,42,8,0.65) 100%)',
-                                borderTop: '2px solid rgba(255, 252, 230, 0.92)',
-                                borderLeft: '1.5px solid rgba(255, 240, 175, 0.72)',
-                                borderRight: '1.5px solid rgba(212, 175, 55, 0.55)',
-                                borderBottom: '2px solid rgba(255, 230, 130, 0.85)',
-                                boxShadow: bar.isHero
-                                  ? '0 0 32px rgba(255, 215, 75, 0.65), 0 12px 24px rgba(0,0,0,0.7), inset 0 2px 6px #FFFFFF'
-                                  : '0 10px 22px rgba(0,0,0,0.65), 0 0 14px rgba(212, 175, 55, 0.22), inset 0 2px 4px rgba(255, 255, 255, 0.65), inset -4px 0 8px rgba(0,0,0,0.45)',
+                                  ? 'linear-gradient(180deg, #FCD34D 0%, #F59E0B 60%, #B45309 100%)'
+                                  : 'linear-gradient(180deg, rgba(251,191,36,0.55) 0%, rgba(217,119,6,0.45) 65%, rgba(120,53,15,0.65) 100%)',
+                                borderTop: '1.5px solid rgba(254, 243, 199, 0.85)',
+                                borderLeft: '1px solid rgba(251, 191, 36, 0.45)',
+                                borderRight: '1px solid rgba(180, 83, 9, 0.45)',
+                                boxShadow: '0 6px 16px rgba(0,0,0,0.55)',
                               }
                         }
-                      >
-                        {!isZero && !bar.isHero && (
-                          <div
-                            className="absolute inset-x-1.5 bottom-1 top-2 rounded-t-[6px]"
-                            style={{
-                              background:
-                                'linear-gradient(180deg, rgba(255, 230, 130, 0.35) 0%, rgba(235, 185, 45, 0.68) 65%, rgba(255, 215, 80, 0.85) 100%)',
-                              boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.6)',
-                            }}
-                          />
-                        )}
-                        {!isZero && (
-                          <div
-                            className="absolute top-1 bottom-1 left-1 w-1.5 rounded-full pointer-events-none"
-                            style={{
-                              background:
-                                'linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.2) 100%)',
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      {/* Golden Floor Reflection Glow Beneath Each Bar */}
-                      <div
-                        className={`w-4/5 h-1.5 rounded-full mt-1 blur-[2px] ${
-                          isZero
-                            ? 'bg-yellow-500/20 opacity-30'
-                            : bar.isHero
-                            ? 'bg-[#FFE57F] opacity-95'
-                            : 'bg-[#F5D061] opacity-60'
-                        }`}
                       />
 
                       {/* Meaningful Project Section / Day Label */}
                       <span
                         dir={isAr ? 'rtl' : 'ltr'}
-                        className={`mt-2 text-[11px] sm:text-xs font-extrabold whitespace-nowrap transition-colors ${
+                        className={`mt-2.5 text-[11px] sm:text-xs font-extrabold whitespace-nowrap transition-colors ${
                           bar.isHero
-                            ? 'text-[#FFD700] drop-shadow-[0_0_8px_rgba(255,215,0,0.5)]'
-                            : 'text-white group-hover:text-[#FFD700]'
+                            ? 'text-amber-400'
+                            : 'text-white group-hover:text-amber-300'
                         }`}
                       >
                         {bar.label}

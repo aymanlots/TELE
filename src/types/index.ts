@@ -80,6 +80,7 @@ export interface Product extends BaseSyncEntity {
   // Used phone trade-in metadata (Partie 3 #5)
   isTradeIn?: boolean;
   condition?: PhoneCondition;
+  batteryHealth?: number; // Battery percentage e.g. 88, 100
   tradeInCustomerName?: string;
   tradeInCustomerPhone?: string;
   tradeInCustomerCIN?: string;
@@ -365,7 +366,12 @@ export interface StoreSettings {
   shopMembers?: ShopMember[];
   adminName?: string;
   adminPhone?: string; // Admin WhatsApp phone number for login & password recovery
+  pinCode?: string; // 4+ digit secret PIN protecting the phone account across all devices
   whatsappGatewayUrl?: string; // Optional webhook/CallMeBot URL for background WhatsApp OTP
+  metaPhoneNumberId?: string; // Meta WhatsApp Cloud API Phone Number ID
+  metaAccessToken?: string; // Meta WhatsApp Cloud API Permanent/System Access Token
+  metaTemplateName?: string; // Meta WhatsApp Cloud API OTP Template Name (optional)
+  metaTemplateLang?: string; // Meta WhatsApp Cloud API Template Language (e.g. 'ar', 'fr', 'en_US')
   pendingApprovals?: AdminApprovalRequest[];
   storeName: string;
   storeSubtitle?: string;

@@ -3,9 +3,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Cairo", "Plus Jakarta Sans", system-ui, sans-serif;
-  --font-arabic: "Cairo", -apple-system, BlinkMacSystemFont, "SF Pro AR", "SF Arabic", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "JetBrains Mono", monospace;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Cairo", system-ui, sans-serif;
+  --font-arabic: "Cairo", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 
   /* Luxury Gold Spectrum */
   --color-gold-50: #fefdf8;
@@ -46,15 +46,15 @@
 :root,
 html.dark {
   color-scheme: dark;
-  --neutral-950: #07070A;
-  --neutral-900: #0E0E14;
-  --neutral-800: #181822;
-  --neutral-700: #2C2C3C;
-  --neutral-600: #4E4E68;
-  --neutral-500: #8E8EAE;
-  --neutral-400: #BCBCD6;
-  --neutral-300: #E4E4F4;
-  --neutral-200: #F6F6FC;
+  --neutral-950: #09090D;
+  --neutral-900: #111117;
+  --neutral-800: #1C1C26;
+  --neutral-700: #2E2E3E;
+  --neutral-600: #52526B;
+  --neutral-500: #9494B0;
+  --neutral-400: #C8C8DC;
+  --neutral-300: #EAEAF4;
+  --neutral-200: #F8F8FC;
   --neutral-100: #FFFFFF;
   --neutral-50: #FFFFFF;
 }
@@ -75,12 +75,7 @@ html.light {
 }
 
 html {
-  background-image: url('/shop-bg.jpg'), url('/assets/aistudio/image_9081bf7b.png');
-  background-size: cover;
-  background-attachment: fixed;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-color: #090806;
+  background-color: #09090D;
   color: #FFFFFF;
   scroll-behavior: smooth;
   font-variant-numeric: tabular-nums;
@@ -95,8 +90,6 @@ html.light {
 
 body {
   background: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   color: inherit;
   min-height: 100vh;
   overflow-x: hidden;
@@ -113,45 +106,12 @@ html[dir="ltr"] {
   direction: ltr;
 }
 
-/* ========================================================
-   1. FIXED LUXURY PHONE SHOP BACKGROUND + OVERLAY
-   ======================================================== */
-.app-fixed-viewport-bg {
-  position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  height: 100dvh !important;
-  z-index: 0 !important;
-  pointer-events: none !important;
-  overflow: hidden !important;
-  background-image: url('/shop-bg.jpg'), url('/assets/aistudio/image_9081bf7b.png') !important;
-  background-size: cover !important;
-  background-position: center center !important;
-  background-repeat: no-repeat !important;
-}
-
-.app-fixed-viewport-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.38);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
-}
-
-html.light .app-fixed-viewport-bg::after {
-  background-color: rgba(250, 247, 240, 0.90);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-}
-
 .bg-\[\#0B0B0F\] {
   background-color: transparent !important;
 }
 
 /* ========================================================
-   2. DARK MODE CARDS & CONTAINERS (DEFAULT / html.dark)
+   2. DARK MODE CARDS & CONTAINERS (Unified Radius & Clean Legibility)
    ======================================================== */
 html:not(.light) div.bg-neutral-900,
 html:not(.light) section.bg-neutral-900,
@@ -159,19 +119,13 @@ html:not(.light) article.bg-neutral-900,
 html:not(.light) form.bg-neutral-900,
 html:not(.light) [class*="bg-neutral-900/"],
 html:not(.light) .bg-\[\#15151C\] {
-  border-radius: 20px !important;
-  background: rgba(0, 0, 0, 0.65) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
-  backdrop-filter: blur(20px) saturate(160%) !important;
-  border: 1px solid rgba(234, 179, 8, 0.24) !important;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.45),
-    inset 0 1px 1px rgba(255, 255, 255, 0.14),
-    inset 0 0 18px rgba(255, 215, 0, 0.05) !important;
-  transition:
-    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.22s ease !important;
+  border-radius: 16px !important;
+  background: rgba(12, 12, 17, 0.86) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(212, 175, 55, 0.20) !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45) !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
 }
 
 html:not(.light) div.bg-neutral-950,
@@ -181,12 +135,9 @@ html:not(.light) button.bg-neutral-950,
 html:not(.light) [class*="bg-neutral-950/"],
 html:not(.light) .bg-\[\#0E0E15\],
 html:not(.light) .bg-\[\#111118\] {
-  border-radius: 16px;
-  background: rgba(0, 0, 0, 0.48) !important;
-  -webkit-backdrop-filter: blur(14px) !important;
-  backdrop-filter: blur(14px) !important;
-  border: 1px solid rgba(234, 179, 8, 0.20) !important;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.10) !important;
+  border-radius: 12px;
+  background: rgba(8, 8, 12, 0.78) !important;
+  border: 1px solid rgba(212, 175, 55, 0.16) !important;
 }
 
 /* ========================================================
@@ -204,16 +155,15 @@ html.light .bg-black\/65,
 html.light .bg-black\/60,
 html.light .bg-black\/70,
 html.light .bg-black\/75,
-html.light .bg-black\/80 {
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.95) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
-  backdrop-filter: blur(20px) saturate(140%) !important;
-  border-color: rgba(202, 138, 4, 0.34) !important;
+html.light .bg-black\/80,
+html.light .bg-black\/85 {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  backdrop-filter: blur(10px) !important;
+  border-color: rgba(202, 138, 4, 0.28) !important;
   color: #181512;
-  box-shadow:
-    0 8px 26px rgba(146, 113, 27, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  box-shadow: 0 4px 18px rgba(146, 113, 27, 0.08) !important;
 }
 
 html.light div.bg-neutral-950,
@@ -228,18 +178,17 @@ html.light .bg-white\/5,
 html.light .bg-white\/10,
 html.light .bg-white\/12,
 html.light .bg-white\/15 {
-  border-radius: 14px;
-  background: rgba(247, 243, 232, 0.95) !important;
-  border-color: rgba(202, 138, 4, 0.26) !important;
+  border-radius: 12px;
+  background: rgba(247, 243, 232, 0.96) !important;
+  border-color: rgba(202, 138, 4, 0.22) !important;
   color: #181512;
-  box-shadow: inset 0 1px 2px rgba(146, 113, 27, 0.06) !important;
 }
 
 /* Dashboard Standalone Emerald Profit Card in Light Mode */
 html.light .from-emerald-950\/75 {
   background: linear-gradient(135deg, #ECFDF5 0%, #FFFFFF 100%) !important;
-  border-color: rgba(16, 185, 129, 0.45) !important;
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.1) !important;
 }
 
 html.light .bg-emerald-950\/30 {
@@ -302,24 +251,24 @@ html.light .border-white\/25 {
 }
 
 html.light .divide-white\/10 > :not(:last-child) {
-  border-color: rgba(202, 138, 4, 0.18) !important;
+  border-color: rgba(202, 138, 4, 0.16) !important;
 }
 
-/* Gold Borders Across All Pages */
+/* Subtle Gold Borders Across All Pages */
 .border-neutral-800,
 .border-neutral-700,
 [class*="border-neutral-800/"],
 [class*="border-neutral-700/"] {
-  border-color: rgba(234, 179, 8, 0.22) !important;
+  border-color: rgba(212, 175, 55, 0.20) !important;
 }
 
 .divide-neutral-800 > :not(:last-child),
 .divide-neutral-700 > :not(:last-child) {
-  border-color: rgba(234, 179, 8, 0.16) !important;
+  border-color: rgba(212, 175, 55, 0.14) !important;
 }
 
 /* ========================================================
-   4. INPUTS, SELECTS & TEXTAREAS (DARK vs LIGHT)
+   4. INPUTS, SELECTS & TEXTAREAS (Sharp & Readable)
    ======================================================== */
 input[type="text"],
 input[type="number"],
@@ -331,13 +280,10 @@ input[type="search"],
 input[type="url"],
 select,
 textarea {
-  border-radius: 14px !important;
-  background: rgba(0, 0, 0, 0.55) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  backdrop-filter: blur(16px) !important;
-  border: 1px solid rgba(234, 179, 8, 0.25) !important;
+  border-radius: 12px !important;
+  background: rgba(8, 8, 12, 0.85) !important;
+  border: 1px solid rgba(212, 175, 55, 0.25) !important;
   color: #FFFFFF !important;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5) !important;
 }
 
 html.light input[type="text"],
@@ -351,9 +297,8 @@ html.light input[type="url"],
 html.light select,
 html.light textarea {
   background: #FAF8F2 !important;
-  border: 1px solid rgba(180, 130, 15, 0.36) !important;
+  border: 1px solid rgba(180, 130, 15, 0.34) !important;
   color: #181512 !important;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
 }
 
 html.light input::placeholder,
@@ -364,8 +309,8 @@ html.light textarea::placeholder {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(255, 215, 0, 0.75) !important;
-  box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.22) !important;
+  border-color: #EAB308 !important;
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.18) !important;
   outline: none !important;
 }
 
@@ -373,7 +318,7 @@ html.light input:focus,
 html.light select:focus,
 html.light textarea:focus {
   border-color: #B47B08 !important;
-  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25) !important;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2) !important;
 }
 
 select option {
@@ -387,48 +332,43 @@ html.light select option {
 }
 
 /* ========================================================
-   5. BUTTONS & TABLES (DARK vs LIGHT)
+   5. BUTTONS & TABLES (Clean Solid Gold Without Blinding Glow)
    ======================================================== */
 button.bg-amber-500,
 .bg-amber-500 {
-  background: linear-gradient(90deg, #EAB308 0%, #FACC15 50%, #F59E0B 100%) !important;
+  background: #EAB308 !important;
   color: #09090B !important;
   font-weight: 800 !important;
-  border: 1px solid rgba(255, 248, 200, 0.75) !important;
-  box-shadow:
-    0 6px 20px rgba(234, 179, 8, 0.35),
-    inset 0 1px 1px rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid #FACC15 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
+  text-shadow: none !important;
 }
 
 button.bg-amber-500:hover,
 .bg-amber-500:hover {
-  transform: scale(1.02);
-  box-shadow:
-    0 8px 25px rgba(234, 179, 8, 0.5),
-    inset 0 1px 1px rgba(255, 255, 255, 0.9) !important;
+  background: #FACC15 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
 
 button.bg-neutral-800,
 .bg-neutral-800,
 [class*="bg-neutral-800/"] {
-  background: rgba(0, 0, 0, 0.55) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  backdrop-filter: blur(16px) !important;
-  border: 1px solid rgba(234, 179, 8, 0.25) !important;
+  background: rgba(18, 18, 24, 0.85) !important;
+  border: 1px solid rgba(212, 175, 55, 0.22) !important;
 }
 
 html.light button.bg-neutral-800,
 html.light .bg-neutral-800,
 html.light [class*="bg-neutral-800/"] {
   background: #F2EDE0 !important;
-  border: 1px solid rgba(180, 130, 15, 0.32) !important;
+  border: 1px solid rgba(180, 130, 15, 0.3) !important;
   color: #181512 !important;
 }
 
 button.bg-neutral-800:hover,
 .bg-neutral-800:hover {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-color: rgba(255, 215, 0, 0.5) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(234, 179, 8, 0.45) !important;
 }
 
 html.light button.bg-neutral-800:hover,
@@ -439,22 +379,22 @@ html.light .bg-neutral-800:hover {
 
 /* Tables across POS, Stock, Bons, Repairs, Customers, Reports */
 table thead {
-  background: rgba(0, 0, 0, 0.6) !important;
-  border-bottom: 1px solid rgba(234, 179, 8, 0.28) !important;
+  background: rgba(8, 8, 12, 0.85) !important;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.24) !important;
 }
 
 table thead th {
-  color: #FFD700 !important;
+  color: #FACC15 !important;
   font-weight: 800 !important;
 }
 
 table tbody tr:hover {
-  background-color: rgba(255, 215, 0, 0.08) !important;
+  background-color: rgba(234, 179, 8, 0.06) !important;
 }
 
 html.light table thead {
   background: #F4EFE2 !important;
-  border-bottom: 1px solid rgba(180, 130, 15, 0.35) !important;
+  border-bottom: 1px solid rgba(180, 130, 15, 0.32) !important;
 }
 
 html.light table thead th {
@@ -463,12 +403,12 @@ html.light table thead th {
 }
 
 html.light table tbody tr:hover {
-  background-color: rgba(234, 179, 8, 0.12) !important;
+  background-color: rgba(234, 179, 8, 0.1) !important;
 }
 
 /* Gold Text Gradient */
 .text-gold-gradient {
-  background: linear-gradient(180deg, #FFF7C2 0%, #FFD700 50%, #FFB700 100%);
+  background: linear-gradient(180deg, #FEF08A 0%, #EAB308 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -480,7 +420,7 @@ html.light .text-gold-gradient {
 }
 
 .glow-gold {
-  filter: drop-shadow(0 4px 10px rgba(255, 200, 0, 0.45));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
 @keyframes shake {
@@ -508,12 +448,12 @@ html.light ::-webkit-scrollbar-track {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(234, 179, 8, 0.38);
+  background: rgba(212, 175, 55, 0.35);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 215, 0, 0.65);
+  background: rgba(234, 179, 8, 0.6);
 }
 
 @media print {

@@ -421,19 +421,36 @@ export async function generateBonPDF(sale: Sale, settings: StoreSettings, action
   doc.rect(margin + sigBoxWidth + 10, currentY, sigBoxWidth, 22);
   doc.text('Cachet & Signature du Magasin', margin + sigBoxWidth + 14, currentY + 5);
 
-  // 8. Footer Band
+  // 8. Footer Band (Clean Latin text + crisp Arabic canvas image to prevent mojibake glyphs)
   doc.setFillColor(30, 30, 36);
   doc.rect(margin, pageHeight - margin - 8, contentWidth, 8, 'F');
+
+  const rawBrand = settings.storeName?.trim() || 'GOLDEN SHOP';
+  const cleanBrand = rawBrand.replace(/[\u0600-\u06FF]/g, '').trim() || 'GOLDEN SHOP';
+
   doc.setTextColor(212, 175, 55);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  const footerBrand = (settings.storeName?.trim() || (settings.language === 'ar' ? 'متجري' : 'MON MAGASIN')).toUpperCase();
+  doc.setFontSize(8);
   doc.text(
-    `MERCI POUR VOTRE CONFIANCE  •  ${footerBrand}  •  شكراً لثقتكم بنا`,
-    pageWidth / 2,
-    pageHeight - margin - 3,
-    { align: 'center' }
+    `MERCI POUR VOTRE CONFIANCE  •  ${cleanBrand.toUpperCase()}`,
+    margin + 6,
+    pageHeight - margin - 2.8
   );
+
+  const arabicFooter = renderArabicTextToDataUrl('شكراً لثقتكم بنا', 20, '#D4AF37', true);
+  if (arabicFooter.dataUrl) {
+    const imgW = arabicFooter.widthMm * 0.45;
+    const imgH = arabicFooter.heightMm * 0.45;
+    doc.addImage(
+      arabicFooter.dataUrl,
+      'PNG',
+      pageWidth - margin - imgW - 6,
+      pageHeight - margin - 6.5,
+      imgW,
+      imgH
+    );
+  }
+
 
   // Output
   if (action === 'print') {
@@ -773,16 +790,30 @@ export async function generateWarrantyPDF(
   // 8. Footer Band
   doc.setFillColor(30, 30, 36);
   doc.rect(margin, pageHeight - margin - 8, contentWidth, 8, 'F');
+  const rawBrand = settings.storeName?.trim() || 'GOLDEN SHOP';
+  const cleanBrand = rawBrand.replace(/[\u0600-\u06FF]/g, '').trim() || 'GOLDEN SHOP';
   doc.setTextColor(212, 175, 55);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-    const footerBrand = (settings.storeName?.trim() || (settings.language === 'ar' ? 'متجري' : 'MON MAGASIN')).toUpperCase();
-    doc.text(
-      `CERTIFICAT DE GARANTIE  •  ${footerBrand}  •  وثيقة الضمان الرسمي`,
-      pageWidth / 2,
-      pageHeight - margin - 3,
-      { align: 'center' }
+  doc.setFontSize(8);
+  doc.text(
+    `CERTIFICAT DE GARANTIE  •  ${cleanBrand.toUpperCase()}`,
+    margin + 6,
+    pageHeight - margin - 2.8
+  );
+
+  const arabicWarranty = renderArabicTextToDataUrl('وثيقة الضمان الرسمي', 20, '#D4AF37', true);
+  if (arabicWarranty.dataUrl) {
+    const imgW = arabicWarranty.widthMm * 0.45;
+    const imgH = arabicWarranty.heightMm * 0.45;
+    doc.addImage(
+      arabicWarranty.dataUrl,
+      'PNG',
+      pageWidth - margin - imgW - 6,
+      pageHeight - margin - 6.5,
+      imgW,
+      imgH
     );
+  }
 
   // Output
   if (action === 'print') {
@@ -1139,16 +1170,30 @@ export async function generateCustomerStatementPDF(
   // 8. Footer Band
   doc.setFillColor(30, 30, 36);
   doc.rect(margin, pageHeight - margin - 8, contentWidth, 8, 'F');
+  const rawBrand = settings.storeName?.trim() || 'GOLDEN SHOP';
+  const cleanBrand = rawBrand.replace(/[\u0600-\u06FF]/g, '').trim() || 'GOLDEN SHOP';
   doc.setTextColor(212, 175, 55);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  const footerBrand = (settings.storeName?.trim() || (settings.language === 'ar' ? 'متجري' : 'MON MAGASIN')).toUpperCase();
+  doc.setFontSize(8);
   doc.text(
-    `RELEVÉ DE COMPTE OFFICIEL  •  ${footerBrand}  •  كشف الحساب المالي للعميل`,
-    pageWidth / 2,
-    pageHeight - margin - 3,
-    { align: 'center' }
+    `RELEVÉ DE COMPTE OFFICIEL  •  ${cleanBrand.toUpperCase()}`,
+    margin + 6,
+    pageHeight - margin - 2.8
   );
+
+  const arabicStatement = renderArabicTextToDataUrl('كشف الحساب المالي للزبون', 20, '#D4AF37', true);
+  if (arabicStatement.dataUrl) {
+    const imgW = arabicStatement.widthMm * 0.45;
+    const imgH = arabicStatement.heightMm * 0.45;
+    doc.addImage(
+      arabicStatement.dataUrl,
+      'PNG',
+      pageWidth - margin - imgW - 6,
+      pageHeight - margin - 6.5,
+      imgW,
+      imgH
+    );
+  }
 
   // Output
   if (action === 'print') {
@@ -1262,7 +1307,7 @@ export async function generateRepairDepositPDF(
   doc.setTextColor(20, 20, 30);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  doc.text("BON DE DEPOT DE REPARATION / وصل إيداع للإصلاح", margin + contentWidth / 2, titleY + 7.5, { align: 'center' });
+  doc.text("BON DE DÉPÔT DE RÉPARATION (ATELIER)", margin + contentWidth / 2, titleY + 7.5, { align: 'center' });
 
   // 4. Reference, Client & Dates Box
   const infoY = titleY + 16;
@@ -1296,19 +1341,19 @@ export async function generateRepairDepositPDF(
   autoTable(doc, {
     startY: tableStartY,
     margin: { left: margin, right: margin },
-    head: [['APPAREIL / MODÈLE', 'N° IMEI / SERIE', 'PANNE & TRAVAUX DEMANDÉS', 'STATUT ACTUEL']],
+    head: [['APPAREIL / MODÈLE', 'N° IMEI / SÉRIE', 'PANNE & TRAVAUX DEMANDÉS', 'STATUT ACTUEL']],
     body: [
       [
         `${repair.brand} ${repair.model}`,
         repair.imei || 'Non spécifié',
         repair.issue,
         repair.status === 'ready'
-          ? 'Prêt (واجد)'
+          ? 'Prêt à livrer'
           : repair.status === 'in_progress'
-          ? 'En cours (قيد الإصلاح)'
+          ? 'En cours d\'atelier'
           : repair.status === 'waiting_parts'
-          ? 'Attente pièce (كيتسنى قطعة)'
-          : 'En attente (كيتسنى)',
+          ? 'Attente pièces'
+          : 'En attente diagnostic',
       ],
     ],
     theme: 'grid',
@@ -1369,11 +1414,11 @@ export async function generateRepairDepositPDF(
         { content: `${repair.agreedPrice.toLocaleString('fr-FR')} MAD`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 10.5 } },
       ],
       [
-        { content: 'Acompte / العربون المدفوع :' },
+        { content: 'Acompte Versé (Avance) :' },
         { content: `${repair.depositAmount.toLocaleString('fr-FR')} MAD`, styles: { halign: 'right', fontStyle: 'bold', textColor: [30, 130, 30] } },
       ],
       [
-        { content: 'Reste à Payer / الباقي عند التسليم :', styles: { fontStyle: 'bold' } },
+        { content: 'Reste à Payer (À la livraison) :', styles: { fontStyle: 'bold' } },
         { content: `${repair.remainingAmount.toLocaleString('fr-FR')} MAD`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 12, textColor: [180, 20, 20] } },
       ],
     ],
@@ -1527,7 +1572,7 @@ export async function generateRepairDeliveryPDF(
   doc.setTextColor(20, 83, 45);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  doc.text("BON DE LIVRAISON ET DE REGLEMENT / وصل تسليم وخلاص", margin + contentWidth / 2, titleY + 7.5, { align: 'center' });
+  doc.text("BON DE LIVRAISON ET DE RÈGLEMENT (ATELIER)", margin + contentWidth / 2, titleY + 7.5, { align: 'center' });
 
   // Details
   const infoY = titleY + 16;

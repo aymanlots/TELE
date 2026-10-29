@@ -43,7 +43,7 @@ import { useAccessAuth } from '../lib/accessAuth';
 import { getMoroccoDateString } from '../lib/dateUtils';
 import { ScanButton } from '../components/ScanButton';
 import { StickerPrintModal } from '../components/StickerPrintModal';
-import { UsedPhoneTradeInModal } from '../components/UsedPhoneTradeInModal';
+import { UsedPhoneTradeInModal, printUsedPhoneContractHtml } from '../components/UsedPhoneTradeInModal';
 import { GlassKpiCard, GoldInventoryBox3D } from '../components/GoldenGlassUI';
 
 interface StockPageProps {
@@ -527,7 +527,7 @@ export const StockPage: React.FC<StockPageProps> = ({ initialSearch, initialActi
       )}
 
       {/* Filter, Search & Actions Glass Bar */}
-      <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-4">
+      <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-4">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Search + Camera Scan */}
@@ -602,10 +602,10 @@ export const StockPage: React.FC<StockPageProps> = ({ initialSearch, initialActi
             <button
               type="button"
               onClick={() => setIsTradeInModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-[#22c55e] border border-emerald-500/30 font-bold transition px-3.5 py-2 text-xs"
+              className="flex items-center justify-center gap-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-[#22c55e] border border-emerald-500/30 font-bold transition px-3.5 py-2 text-xs cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
-              <span>{isAr ? 'شراء مستعمل (Reprise)' : 'Reprise Occasion'}</span>
+              <span>{isAr ? 'شراء هاتف مستعمل (La Reprise)' : 'Reprise Occasion'}</span>
             </button>
 
             <button
@@ -618,7 +618,7 @@ export const StockPage: React.FC<StockPageProps> = ({ initialSearch, initialActi
                 setInventoryCounts(initialMap);
                 setIsInventoryModalOpen(true);
               }}
-              className="flex items-center justify-center gap-1.5 rounded-full bg-black/60 hover:bg-black/80 text-gray-200 border border-yellow-500/25 font-bold transition px-3.5 py-2 text-xs"
+              className="flex items-center justify-center gap-1.5 rounded-full bg-black/60 hover:bg-black/80 text-gray-200 border border-yellow-500/25 font-bold transition px-3.5 py-2 text-xs cursor-pointer"
             >
               <ClipboardCheck className="w-4 h-4 text-[#FFD700]" />
               <span>{isAr ? 'الجرد الفعلي' : 'Inventaire'}</span>
@@ -627,10 +627,10 @@ export const StockPage: React.FC<StockPageProps> = ({ initialSearch, initialActi
             <button
               type="button"
               onClick={() => setStickerModalState({ isOpen: true, product: null })}
-              className="flex items-center justify-center gap-1.5 rounded-full bg-black/60 hover:bg-black/80 text-[#FFD700] border border-yellow-500/30 font-bold transition px-3.5 py-2 text-xs"
+              className="flex items-center justify-center gap-1.5 rounded-full bg-amber-400/15 hover:bg-amber-400/25 text-[#FFD700] border border-yellow-500/35 font-bold transition px-3.5 py-2 text-xs cursor-pointer"
             >
               <QrCode className="w-4 h-4" />
-              <span>{language === 'ar' ? 'طباعة ستيكرات QR' : 'Étiquettes QR / Code'}</span>
+              <span>{language === 'ar' ? 'طبع تيكيت الكود بار (Étiquettes)' : 'Étiquettes Code-Barres'}</span>
             </button>
 
             <button
@@ -1032,21 +1032,22 @@ export const StockPage: React.FC<StockPageProps> = ({ initialSearch, initialActi
                           type="button"
                           onClick={async () => {
                             const s = await getStoreSettings();
-                            const { generateTradeInContractPDF } = await import('../lib/pdfGenerator');
-                            await generateTradeInContractPDF(p, s, 'save');
+                            printUsedPhoneContractHtml(p, s, p.batteryHealth);
                           }}
-                          className="p-1.5 rounded-lg bg-emerald-500/15 text-[#22c55e] hover:bg-emerald-500/25 border border-emerald-500/30 transition"
-                          title={isAr ? 'تحميل عقد شراء هاتف مستعمل رسمي (PDF)' : 'Télécharger Contrat de Reprise PDF'}
+                          className="px-2 py-1 rounded-lg bg-emerald-500/15 text-[#22c55e] hover:bg-emerald-500/25 border border-emerald-500/30 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                          title={isAr ? 'طبع التزام بيع هاتف مستعمل (CIN)' : 'Imprimer Contrat de Reprise (CIN)'}
                         >
-                          <FileText className="w-4 h-4" />
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'عقد CIN' : 'Contrat'}</span>
                         </button>
                       )}
                       <button
                         onClick={() => setStickerModalState({ isOpen: true, product: p })}
-                        className="p-1.5 rounded-lg bg-yellow-500/15 text-[#FFD700] hover:bg-yellow-500/25 border border-yellow-500/30 transition"
-                        title={language === 'ar' ? 'طباعة ستيكر QR / باركود' : 'Imprimer étiquette QR / Code-barres'}
+                        className="px-2 py-1 rounded-lg bg-yellow-500/15 text-[#FFD700] hover:bg-yellow-500/25 border border-yellow-500/30 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                        title={language === 'ar' ? 'طبع تيكيت الكود بار' : 'Imprimer étiquette Code-barres'}
                       >
-                        <QrCode className="w-4 h-4" />
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>{isAr ? 'تيكيت' : 'Code'}</span>
                       </button>
                       <button
                         onClick={() => setHistoryProduct(p)}

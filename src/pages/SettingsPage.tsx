@@ -25,21 +25,7 @@ import {
 } from 'lucide-react';
 import { useLicensePlan } from '../lib/licensePlan';
 import { useAccessAuth } from '../lib/accessAuth';
-import {
-  isSupabaseConfigured,
-  fetchShopUsers,
-  createEmployeeViaEdgeFunction,
-  toggleEmployeeActiveStatus,
-  migrateAllLocalDataToCloud,
-  ShopUserProfile,
-} from '../lib/supabaseSync';
-import {
-  migrateAllLocalDataToFirestore,
-  triggerCloudSync as triggerFirebaseSync,
-  subscribeSyncStatus as subscribeFirebaseSyncStatus,
-  SyncStatusSnapshot as FirebaseSyncSnapshot,
-} from '../lib/firebaseSync';
-import { resolvedFirebaseConfig } from '../firebase';
+import { useOnlineStatus } from '../lib/usePWAInstall';
 import {
   getStoreSettings,
   saveStoreSettings,
@@ -62,6 +48,13 @@ import {
   DEFAULT_WHATSAPP_TEMPLATES_FR,
   renderWhatsAppMessage,
 } from '../lib/whatsapp';
+import {
+  syncShopMembersPhoneIndex,
+  saveLocalMetaCloudConfig,
+  getLocalMetaCloudConfig,
+} from '../lib/whatsappCloudApi';
+import { doc, setDoc } from 'firebase/firestore';
+import { firestore, normalizeShopPhoneNumber } from '../firebase';
 import { todayMA, nowMA } from '../lib/dateUtils';
 
 interface SettingsPageProps {
@@ -103,6 +96,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
   const [adminName, setAdminName] = useState<string>('');
   const [adminPhone, setAdminPhone] = useState<string>('');
   const [whatsappGatewayUrl, setWhatsappGatewayUrl] = useState<string>('');
+  const [metaPhoneNumberId, setMetaPhoneNumberId] = useState<string>('');
+  const [metaAccessToken, setMetaAccessToken] = useState<string>('');
+  const [metaTemplateName, setMetaTemplateName] = useState<string>('');
+  const [metaTemplateLang, setMetaTemplateLang] = useState<string>('ar');
   const [localMembers, setLocalMembers] = useState<ShopMember[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
@@ -116,21 +113,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
   const [activeTemplateTab, setActiveTemplateTab] = useState<'repair' | 'credit' | 'receipt'>('repair');
 
   const { setAutoLockMinutesState, changePin, can, logout, activePhone } = useAccessAuth();
-
-  // Users & Cloud Migration State (Owner only)
-  const [shopUsers, setShopUsers] = useState<ShopUserProfile[]>([]);
-  const [empFullName, setEmpFullName] = useState('');
-  const [empEmail, setEmpEmail] = useState('');
-  const [empPassword, setEmpPassword] = useState('');
-  const [empRole, setEmpRole] = useState<UserRole>('cashier');
-  const [isCreatingEmp, setIsCreatingEmp] = useState(false);
-  const [isMigratingCloud, setIsMigratingCloud] = useState(false);
-  const [migrationProgress, setMigrationProgress] = useState<string>('');
-
-  // Firebase Sync State
-  const [firebaseSyncSnap, setFirebaseSyncSnap] = useState<FirebaseSyncSnapshot | null>(null);
-  const [isMigratingFirebase, setIsMigratingFirebase] = useState(false);
-  const [firebaseMigrationProgress, setFirebaseMigrationProgress] = useState<string>('');
+  const isOnline = useOnlineStatus();
 
   // Dialogs
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -166,6 +149,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
       setAdminName(s.adminName || '');
       setAdminPhone(s.adminPhone || s.phone || '');
       setWhatsappGatewayUrl(s.whatsappGatewayUrl || '');
+      const localMeta = getLocalMetaCloudConfig();
+      setMetaPhoneNumberId(s.metaPhoneNumberId || localMeta.phoneNumberId || '');
+      setMetaAccessToken(s.metaAccessToken || localMeta.accessToken || '');
+      setMetaTemplateName(s.metaTemplateName || localMeta.templateName || '');
+      setMetaTemplateLang(s.metaTemplateLang || localMeta.templateLang || 'ar');
       setLocalMembers(Array.isArray(s.shopMembers) ? s.shopMembers : []);
 
       // Load WhatsApp Templates
@@ -175,18 +163,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
       setRepairReadyTemplate(tpls.repairReady || defaults.repairReady);
       setCreditReminderTemplate(tpls.creditReminder || defaults.creditReminder);
       setSaleReceiptTemplate(tpls.saleReceipt || defaults.saleReceipt);
-
-      if (isSupabaseConfigured) {
-        const users = await fetchShopUsers();
-        setShopUsers(users);
-      }
     }
     load();
-
-    const unsub = subscribeFirebaseSyncStatus((snap) => setFirebaseSyncSnap(snap));
-    return () => {
-      unsub();
-    };
   }, [language]);
 
   // Save Store Settings
@@ -202,6 +180,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
         adminName: adminName.trim() || undefined,
         adminPhone: adminPhone.trim() || phone.trim() || undefined,
         whatsappGatewayUrl: whatsappGatewayUrl.trim() || undefined,
+        metaPhoneNumberId: metaPhoneNumberId.trim() || undefined,
+        metaAccessToken: metaAccessToken.trim() || undefined,
+        metaTemplateName: metaTemplateName.trim() || undefined,
+        metaTemplateLang: metaTemplateLang.trim() || 'ar',
         shopMembers: localMembers,
         storeName: storeName.trim(),
         storeSubtitle: storeSubtitle.trim() || undefined,
@@ -223,6 +205,50 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
         },
       };
       await saveStoreSettings(updated);
+      saveLocalMetaCloudConfig({
+        phoneNumberId: metaPhoneNumberId.trim(),
+        accessToken: metaAccessToken.trim(),
+        templateName: metaTemplateName.trim(),
+        templateLang: metaTemplateLang.trim() || 'ar',
+        gatewayWebhookUrl: whatsappGatewayUrl.trim(),
+      });
+
+      const targetShopPhone = normalizeShopPhoneNumber(activePhone || shopId || phone);
+      if (targetShopPhone) {
+        try {
+          await setDoc(
+            doc(firestore, 'shops', targetShopPhone),
+            {
+              storeName: storeName.trim() || 'المحل الذهبي',
+              adminName: adminName.trim() || 'المدير',
+              adminPhone: adminPhone.trim() || targetShopPhone,
+              metaPhoneNumberId: metaPhoneNumberId.trim() || null,
+              metaAccessToken: metaAccessToken.trim() || null,
+              metaTemplateName: metaTemplateName.trim() || null,
+              metaTemplateLang: metaTemplateLang.trim() || 'ar',
+              whatsappGatewayUrl: whatsappGatewayUrl.trim() || null,
+              shopMembers: localMembers,
+              updated_at: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+          if (metaPhoneNumberId.trim() && metaAccessToken.trim()) {
+            await setDoc(
+              doc(firestore, 'platform_config', 'whatsapp_cloud_api'),
+              {
+                phoneNumberId: metaPhoneNumberId.trim(),
+                accessToken: metaAccessToken.trim(),
+                templateName: metaTemplateName.trim() || null,
+                templateLang: metaTemplateLang.trim() || 'ar',
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+          await syncShopMembersPhoneIndex(targetShopPhone, storeName.trim(), localMembers);
+        } catch {}
+      }
+
       setAutoLockMinutesState(Number(autoLockMinutes));
       success(language === 'ar' ? "تم حفظ إعدادات المحل بنجاح." : "Paramètres du magasin enregistrés avec succès.");
       if (onSettingsSaved) onSettingsSaved();
@@ -398,42 +424,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="flex items-center justify-between p-5 rounded-xl bg-neutral-900 border border-neutral-800">
+      <div className="flex items-center justify-between p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
         <div>
           <h1 className="text-xl font-bold text-neutral-100 tracking-tight flex items-center gap-2">
             <Settings className="w-5 h-5 text-amber-400" />
             <span>{t.settings.title}</span>
           </h1>
           <p className="text-xs text-neutral-400 mt-1">
-            Personnalisez vos informations d'établissement, gérez vos sauvegardes hors-ligne et vos préférences
+            {language === 'ar'
+              ? 'تخصيص معلومات المحل، إدارة الحسابات، وحماية البيانات المرتبطة برقم الهاتف'
+              : "Personnalisez vos informations d'établissement, gérez vos accès et vos préférences"}
           </p>
         </div>
       </div>
-
-      {/* Backup Reminder Banner if > 7 days */}
-      {isBackupOutdated() && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-300">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-            <div>
-              <span className="font-bold">Rappel de Sécurité : </span>
-              <span>{t.settings.noBackupYet}</span>
-            </div>
-          </div>
-          <button
-            onClick={handleExportBackup}
-            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-lg transition shrink-0 self-start sm:self-auto"
-          >
-            Exporter une copie maintenant
-          </button>
-        </div>
-      )}
 
       {/* 2-Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Store Profile & Settings (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          <form onSubmit={handleSaveSettings} className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+          <form onSubmit={handleSaveSettings} className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
             <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 border-b border-neutral-800 pb-3">
               <Store className="w-4 h-4 text-amber-400" />
               <span>{t.settings.storeInfo}</span>
@@ -454,34 +463,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                 />
               </div>
 
-              {/* 2. Store Logo (Preview, upload/replace/remove, max 256px) */}
+              {/* 2. Custom Receipt/Bon Logo (Only for printed receipts, App UI always keeps its official icon) */}
               <div className="sm:col-span-2">
-                <label className="block text-neutral-300 font-medium mb-1">
-                  {t.settings.storeLogo}
+                <label className="block text-neutral-200 font-bold mb-1.5">
+                  {language === 'ar'
+                    ? 'شعار المحل في البونات والفواتير المطبوعة (اختياري)'
+                    : 'Logo de la Boutique sur les Bons & Factures Imprimés (Optionnel)'}
                 </label>
-                <div className="flex flex-col sm:flex-row items-center gap-4 p-3 rounded-xl bg-neutral-950/60 border border-neutral-800">
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-3.5 rounded-2xl bg-black/40 border border-amber-500/25">
                   {logo ? (
-                    <div className="relative w-28 h-28 rounded-2xl overflow-hidden border-2 border-amber-500/60 shrink-0 shadow-lg shadow-amber-500/10 bg-neutral-950 p-2 group">
-                      <img src={logo} alt="Logo" className="w-full h-full object-contain" />
+                    <div className="relative w-24 h-24 rounded-2xl overflow-hidden border-2 border-amber-500/60 shrink-0 shadow-lg bg-black group">
+                      <img src={logo} alt="Receipt Logo" className="w-full h-full object-cover" />
                       <button
                         type="button"
                         onClick={() => setLogo(undefined)}
-                        className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 text-rose-400 transition"
-                        title={language === 'ar' ? 'حذف الشعار' : 'Supprimer le logo'}
+                        className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 text-rose-400 transition cursor-pointer"
+                        title={language === 'ar' ? 'حذف شعار البونات' : 'Supprimer le logo des bons'}
                       >
                         <X className="w-6 h-6" />
                       </button>
                     </div>
                   ) : (
-                    <div className="w-28 h-28 rounded-2xl bg-neutral-950 border-2 border-dashed border-amber-500/40 flex flex-col items-center justify-center text-amber-400 font-black text-3xl uppercase shrink-0 shadow-inner">
+                    <div className="w-24 h-24 rounded-2xl bg-black/50 border-2 border-dashed border-amber-500/40 flex flex-col items-center justify-center text-amber-400 font-black text-2xl uppercase shrink-0 shadow-inner">
                       {(storeName.trim() || (language === 'ar' ? 'متجري' : 'Mon Magasin')).charAt(0).toUpperCase()}
                     </div>
                   )}
 
                   <div className="flex-1 flex flex-col gap-2 w-full">
                     <label className="cursor-pointer">
-                      <span className="block px-3.5 py-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-center text-neutral-100 font-semibold transition text-xs">
-                        {logo ? (language === 'ar' ? 'تغيير الشعار' : 'Remplacer le logo') : (language === 'ar' ? 'تحميل الشعار' : 'Charger un logo')}
+                      <span className="block px-3.5 py-2.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-center text-amber-300 font-bold transition text-xs">
+                        {logo
+                          ? language === 'ar'
+                            ? 'تغيير شعار البونات والفواتير'
+                            : 'Remplacer le logo des bons'
+                          : language === 'ar'
+                          ? 'تحميل شعار المحل للبونات المطبوعة'
+                          : 'Charger un logo pour les bons imprimés'}
                       </span>
                       <input
                         type="file"
@@ -495,16 +512,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                       <button
                         type="button"
                         onClick={() => setLogo(undefined)}
-                        className="px-3 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition"
+                        className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-bold transition cursor-pointer"
                       >
-                        {language === 'ar' ? 'حذف الشعار' : 'Supprimer le logo'}
+                        {language === 'ar' ? 'حذف شعار البونات' : 'Supprimer le logo des bons'}
                       </button>
                     )}
 
-                    <p className="text-[10px] text-neutral-400">
+                    <p className="text-[10px] text-amber-300/90 font-semibold leading-relaxed">
                       {language === 'ar'
-                        ? 'يظهر الشعار في الهيدر، القائمة الجانبية، والوصولات المطبوعة.'
-                        : 'Le logo sera affiché dans l\'application et sur les reçus imprimés.'}
+                        ? 'هذه الصورة تظهر فقط في البونات والفواتير المطبوعة (PDF).'
+                        : 'Cette image apparaît uniquement sur les bons et factures imprimés (PDF).'}
                     </p>
                   </div>
                 </div>
@@ -636,7 +653,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
           </form>
 
           {/* Preferences (Language & Theme) */}
-          <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+          <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
             <h2 className="text-sm font-bold text-neutral-100 border-b border-neutral-800 pb-3">
               {language === 'ar' ? 'المظهر واللغة' : 'Affichage & Langue'}
             </h2>
@@ -731,7 +748,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
           </div>
 
           {/* License & Plan Tier Management Card (Client View + Secret 5-Click Reseller Trigger on Crown Icon) */}
-          <div className="p-5 rounded-xl bg-neutral-900 border border-yellow-500/30 shadow-[0_4px_20px_rgba(245,208,76,0.08)] space-y-4 text-xs">
+          <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <div className="flex items-center gap-2.5">
                 <div
@@ -838,7 +855,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
           </div>
 
           {/* Access Security & Auto-Lock Card */}
-          <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+          <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
             <h2 className="text-sm font-bold text-neutral-100 flex items-center justify-between border-b border-neutral-800 pb-3">
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-amber-400" />
@@ -932,12 +949,86 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                     />
                   </div>
                 </div>
+
+                {/* Meta WhatsApp Cloud API Configuration for Multi-User 6-Digit OTP */}
+                <div className="mt-3 pt-3 border-t border-neutral-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
+                      <Cloud className="w-3.5 h-3.5" />
+                      <span>
+                        {language === 'ar'
+                          ? 'ربط Meta WhatsApp Cloud API (إرسال أكواد OTP لنسيان كلمة السر)'
+                          : 'Meta WhatsApp Cloud API (Envoi des codes OTP à 6 chiffres)'}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
+                      OTP 6 أرقام • 5 دقائق • Rate Limit
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-neutral-400 text-[11px] mb-1">
+                        {language === 'ar' ? 'Phone Number ID (Meta Cloud API)' : 'Phone Number ID (Meta)'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={metaPhoneNumberId}
+                        onChange={(e) => setMetaPhoneNumberId(e.target.value)}
+                        placeholder="ex: 109283746512345"
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-100 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-neutral-400 text-[11px] mb-1">
+                        {language === 'ar' ? 'اسم قالب OTP في Meta (اختياري)' : 'Nom du modèle OTP (Optionnel)'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={metaTemplateName}
+                        onChange={(e) => setMetaTemplateName(e.target.value)}
+                        placeholder="ex: otp_verification (أو اتركه فارغاً لرسالة نصية)"
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-100 font-mono text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-neutral-400 text-[11px] mb-1">
+                        {language === 'ar' ? 'Meta Permanent Access Token (Bearer Token)' : 'Meta Access Token Permanent'}
+                      </label>
+                      <input
+                        type="password"
+                        dir="ltr"
+                        value={metaAccessToken}
+                        onChange={(e) => setMetaAccessToken(e.target.value)}
+                        placeholder="EAAGm0PX4ZCpsBA..."
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-amber-300 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveSettings}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold text-xs transition cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>
+                        {language === 'ar'
+                          ? 'حفظ إعدادات Meta WhatsApp Cloud API'
+                          : 'Enregistrer la configuration Meta Cloud API'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* WhatsApp Message Templates Customizer Card */}
-          <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+          <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <div className="flex items-center gap-2">
                 <MessageCircle className="w-4 h-4 text-emerald-400" />
@@ -1094,58 +1185,36 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
           </div>
         </div>
 
-        {/* Right Column: Backup & Restore + PWA (5 cols) */}
+        {/* Right Column: Account Data Protection + Team + PWA (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Backup & Restore Panel */}
+          {/* Automatic Account Protection & Reset Panel (Manual JSON export/import removed to prevent trial transfer abuse) */}
           {can('manage_backups') && (
-            <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+            <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
               <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 border-b border-neutral-800 pb-3">
                 <Shield className="w-4 h-4 text-amber-400" />
-                <span>{t.settings.backupSection}</span>
+                <span>
+                  {language === 'ar'
+                    ? 'حماية البيانات المرتبطة برقم الهاتف'
+                    : 'Protection Automatique liée au Numéro'}
+                </span>
               </h2>
 
-              <p className="text-neutral-400 leading-relaxed text-[11px]">
-                {t.settings.backupDescription}
-              </p>
-
-              {lastBackupDate && (
-                <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] text-neutral-300 font-mono">
-                  <span className="text-neutral-500">{t.settings.lastBackup} </span>
-                  <span>{new Date(lastBackupDate).toLocaleDateString()} {new Date(lastBackupDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2.5 text-emerald-200 leading-relaxed text-[11px]">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  {language === 'ar'
+                    ? 'جميع بيانات المحل (السلعة، المبيعات، الزبناء، الإصلاحات، والأرباح) محفوظة ومحمية تلقائياً في حساب رقم هاتفك. عند فتح حسابك بنفس الرقم والكود السري من أي هاتف أو حاسوب آخر، ستجد كافة بياناتك كاملة دون الحاجة لأي نسخ يدوي.'
+                    : 'Toutes les données de votre boutique (stock, ventes, clients, réparations) sont sauvegardées et synchronisées automatiquement sur votre numéro de téléphone.'}
                 </div>
-              )}
-
-              <div className="space-y-2 pt-2">
-                {/* Export Button */}
-                <button
-                  type="button"
-                  onClick={handleExportBackup}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-100 font-semibold border border-neutral-700 transition"
-                >
-                  <Download className="w-4 h-4 text-amber-400" />
-                  <span>{t.settings.exportBackup}</span>
-                </button>
-
-                {/* Import Button */}
-                <label className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-neutral-950 hover:bg-neutral-800 text-neutral-300 font-medium border border-neutral-800 cursor-pointer transition">
-                  <Upload className="w-4 h-4 text-neutral-400" />
-                  <span>{t.settings.importBackup}</span>
-                  <input
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={handleSelectImportFile}
-                    className="hidden"
-                  />
-                </label>
               </div>
 
               {/* Clear All Data Button */}
               {can('delete_records') && (
-                <div className="pt-4 border-t border-neutral-800">
+                <div className="pt-2 border-t border-neutral-800">
                   <button
                     type="button"
                     onClick={() => setShowClearConfirm(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold border border-rose-500/30 transition"
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold border border-rose-500/30 transition cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>{t.settings.clearAllData}</span>
@@ -1157,7 +1226,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
 
           {/* Worker & Team Accounts Management (Owner only) */}
           {can('manage_users') && (
-            <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-4 text-xs">
+            <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-4 text-xs">
               <h2 className="text-sm font-bold text-neutral-100 flex items-center justify-between border-b border-neutral-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-amber-400" />
@@ -1203,6 +1272,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   setLocalMembers(updatedMembers);
                   const current = await getStoreSettings();
                   await saveStoreSettings({ ...current, shopMembers: updatedMembers });
+                  const targetShopPhone = normalizeShopPhoneNumber(activePhone || shopId || phone);
+                  if (targetShopPhone) {
+                    try {
+                      await setDoc(
+                        doc(firestore, 'shops', targetShopPhone),
+                        { shopMembers: updatedMembers, updated_at: new Date().toISOString() },
+                        { merge: true }
+                      );
+                      await syncShopMembersPhoneIndex(targetShopPhone, storeName.trim(), updatedMembers);
+                    } catch {}
+                  }
                   setNewMemberName('');
                   setNewMemberPhone('');
                   setNewMemberPin('');
@@ -1349,332 +1429,43 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                 </div>
               )}
 
-              {/* Cloud Supabase Account Sync Section */}
-              {isSupabaseConfigured && (
-                <>
-                  {/* Create Cloud Employee via Edge Function */}
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      setIsCreatingEmp(true);
-                      try {
-                        const res = await createEmployeeViaEdgeFunction(
-                          empEmail.trim(),
-                          empPassword,
-                          empFullName.trim() || 'Employé',
-                          empRole
-                        );
-                        if (res.success) {
-                          success('Compte Cloud créé avec succès via Edge Function.');
-                          setEmpFullName('');
-                          setEmpEmail('');
-                          setEmpPassword('');
-                          const updated = await fetchShopUsers();
-                          setShopUsers(updated);
-                        } else {
-                          error(res.error || 'Erreur lors de la création du compte Cloud.');
-                        }
-                      } finally {
-                        setIsCreatingEmp(false);
-                      }
-                    }}
-                    className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5"
-                  >
-                    <div className="font-bold text-amber-400 flex items-center gap-1.5 text-[11px]">
-                      <Cloud className="w-3.5 h-3.5" />
-                      <span>
-                        {language === 'ar'
-                          ? 'إنشاء حساب سحابي (Supabase Auth) لخدام فـ جهاز آخر'
-                          : 'Créer un compte Cloud (Supabase Auth multi-appareils)'}
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      value={empFullName}
-                      onChange={(e) => setEmpFullName(e.target.value)}
-                      placeholder="Nom complet"
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-neutral-100"
-                    />
-                    <select
-                      value={empRole}
-                      onChange={(e) => setEmpRole(e.target.value as UserRole)}
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-neutral-100 font-bold"
-                    >
-                      <option value="cashier">{getRoleLabel('cashier', language)}</option>
-                      <option value="technician">{getRoleLabel('technician', language)}</option>
-                      <option value="manager">{getRoleLabel('manager', language)}</option>
-                    </select>
-                    <input
-                      type="email"
-                      required
-                      value={empEmail}
-                      onChange={(e) => setEmpEmail(e.target.value)}
-                      placeholder="Email de connexion"
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-neutral-100"
-                    />
-                    <input
-                      type="password"
-                      required
-                      minLength={8}
-                      value={empPassword}
-                      onChange={(e) => setEmpPassword(e.target.value)}
-                      placeholder="Mot de passe initial (min. 8 caractères)"
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-neutral-100"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isCreatingEmp}
-                      className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold transition disabled:opacity-50"
-                    >
-                      {isCreatingEmp ? 'Création en cours...' : '+ Créer le compte Cloud'}
-                    </button>
-                  </form>
-
-                  {/* Existing Cloud Users List */}
-                  {shopUsers.length > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-bold text-neutral-300">Comptes Cloud (shop_members) :</div>
-                      {shopUsers.map((u) => (
-                        <div
-                          key={u.id}
-                          className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 flex items-center justify-between gap-2"
-                        >
-                          <div>
-                            <div className="font-semibold text-neutral-200">{u.full_name || u.email}</div>
-                            <div className="text-[10px] text-neutral-400 font-mono">
-                              {u.email} • {getRoleLabel(u.role, language)}
-                            </div>
-                          </div>
-                          {u.role !== 'owner' && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const res = await toggleEmployeeActiveStatus(u.id, !u.active);
-                                if (res.success) {
-                                  const updated = await fetchShopUsers();
-                                  setShopUsers(updated);
-                                  success(u.active ? 'Compte désactivé.' : 'Compte activé.');
-                                } else {
-                                  error(res.error || 'Erreur lors de la mise à jour.');
-                                }
-                              }}
-                              className={`px-2.5 py-1 rounded text-[10px] font-bold border transition ${
-                                u.active
-                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                              }`}
-                            >
-                              {u.active ? 'Actif (Désactiver)' : 'Inactif (Activer)'}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* One-click Cloud Migration */}
-                  <div className="pt-3 border-t border-neutral-800">
-                    <button
-                      type="button"
-                      disabled={isMigratingCloud}
-                      onClick={async () => {
-                        setIsMigratingCloud(true);
-                        setMigrationProgress('0%');
-                        try {
-                          const res = await migrateAllLocalDataToCloud((pct, table) => {
-                            setMigrationProgress(`${pct}% (${table})`);
-                          });
-                          if (res.success) {
-                            success(`Migration terminée (${res.totalMigrated} enregistrements envoyés).`);
-                          } else {
-                            error(res.error || 'Erreur lors de la migration Cloud.');
-                          }
-                        } finally {
-                          setIsMigratingCloud(false);
-                          setMigrationProgress('');
-                        }
-                      }}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 font-bold transition disabled:opacity-50"
-                    >
-                      <Cloud className="w-4 h-4" />
-                      <span>
-                        {isMigratingCloud
-                          ? `Migration en cours : ${migrationProgress}`
-                          : 'Migrer toutes les données locales vers le Cloud'}
-                      </span>
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Firebase Cloud Sync Card */}
-              <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 via-neutral-950 to-neutral-900 border border-amber-500/30 space-y-3">
-                <div className="flex items-center justify-between">
+              {/* Clean Phone Account Status Card (No technical Firebase details) */}
+              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-between gap-3">
+                <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                      <Cloud className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-neutral-100 text-xs flex items-center gap-1.5">
-                        <span>{language === 'ar' ? 'المزامنة السحابية الفورية (Firebase onSnapshot)' : 'Synchronisation Cloud Firebase'}</span>
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          {language === 'ar' ? 'أوتوماتيكية 100%' : '100% Automatique'}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-neutral-400 flex items-center gap-1.5 mt-0.5">
-                        <span>{language === 'ar' ? 'المشروع المرتبط:' : 'Projet Firebase :'}</span>
-                        <span className="text-amber-400 font-mono font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                          {resolvedFirebaseConfig.projectId}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const res = await triggerFirebaseSync();
-                      if (res.success) {
-                        success(language === 'ar' ? 'تمت المزامنة بنجاح مع Firebase.' : 'Synchronisé avec Firebase.');
-                      } else {
-                        error(language === 'ar' ? 'فشلت المزامنة.' : 'Échec de synchronisation.');
-                      }
-                    }}
-                    disabled={firebaseSyncSnap?.isSyncing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${firebaseSyncSnap?.isSyncing ? 'animate-spin' : ''}`} />
-                    <span>{language === 'ar' ? 'فحص ومزامنة' : 'Vérifier'}</span>
-                  </button>
-                </div>
-
-                {/* Automation explanation banner */}
-                <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-300 flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold">
-                      {language === 'ar' ? 'المزامنة أوتوماتيكية بالكامل بدون الضغط على أي زر:' : 'Synchronisation 100% automatique :'}
-                    </span>{' '}
-                    <span>
-                      {language === 'ar'
-                        ? 'عندما تكون En Ligne، أي تعديل أو بيع أو إصلاح على الهاتف يظهر فوراً في البيسي بالثانية (onSnapshot). وإذا انقطع النت (Off Line)، يُحفظ محلياً ويُرفع تلقائياً عند عودة الويفي.'
-                        : 'En ligne : mise à jour instantanée entre téléphone et PC via onSnapshot. Hors ligne : sauvegarde locale puis synchronisation automatique au retour du réseau.'}
+                    <span className="text-neutral-300 font-bold text-xs">
+                      {language === 'ar' ? 'رقم هاتف الحساب:' : 'Numéro du compte :'}
                     </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          isOnline ? 'bg-emerald-400' : 'bg-amber-400'
+                        }`}
+                      />
+                      <span>{isOnline ? (language === 'ar' ? 'متصل' : 'Connecté') : language === 'ar' ? 'محلي' : 'Local'}</span>
+                    </span>
+                  </div>
+                  <div className="font-mono font-bold text-amber-400 text-sm" dir="ltr">
+                    {activePhone || getCurrentShopId() || phone || '06xxxxxxxx'}
                   </div>
                 </div>
 
-                {/* Phone Account Connection Card */}
-                <div className="p-3 rounded-lg bg-neutral-900/90 border border-neutral-800 flex items-center justify-between gap-3 text-[11px]">
-                  <div>
-                    <span className="text-neutral-400 block text-[10px]">
-                      {language === 'ar' ? 'الحساب المرتبط برقم الهاتف:' : 'Compte lié par numéro :'}
-                    </span>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="font-mono font-bold text-amber-300 text-sm">
-                        {activePhone || getCurrentShopId() || '06xxxxxxxx'}
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                        shops/{activePhone || getCurrentShopId()}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      logout();
-                      success(language === 'ar' ? 'تم تسجيل الخروج. يمكنك الدخول برقم هاتف آخر.' : 'Déconnecté.');
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[10px] font-bold border border-rose-500/30 cursor-pointer transition shrink-0"
-                  >
-                    {language === 'ar' ? 'تسجيل الخروج / تبديل الرقم' : 'Changer de numéro'}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-1">
-                  <div className="p-2 rounded-lg bg-neutral-900/80 border border-neutral-800">
-                    <span className="text-neutral-400 block text-[10px]">
-                      {language === 'ar' ? 'حالة الاتصال' : 'Statut'}
-                    </span>
-                    <span className="font-semibold text-emerald-400 flex items-center gap-1 mt-0.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
-                      {firebaseSyncSnap?.status === 'offline'
-                        ? (language === 'ar' ? 'أوفلاين (محلي)' : 'Hors-ligne')
-                        : (language === 'ar' ? 'متصل بالإنترنت' : 'Connecté')}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-neutral-900/80 border border-neutral-800">
-                    <span className="text-neutral-400 block text-[10px]">
-                      {language === 'ar' ? 'العمليات في الانتظار' : 'Opérations en attente'}
-                    </span>
-                    <span className="font-semibold text-amber-300 font-mono mt-0.5 block">
-                      {firebaseSyncSnap?.pendingCount || 0}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-neutral-900/80 border border-neutral-800 col-span-2 sm:col-span-1">
-                    <span className="text-neutral-400 block text-[10px]">
-                      {language === 'ar' ? 'آخر مزامنة ناجحة' : 'Dernière synchro'}
-                    </span>
-                    <span className="font-mono text-neutral-300 text-[10px] mt-0.5 block truncate">
-                      {firebaseSyncSnap?.lastSyncedAt
-                        ? new Date(firebaseSyncSnap.lastSyncedAt).toLocaleTimeString()
-                        : (language === 'ar' ? 'منذ قليل' : 'Récemment')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* One-click Migration to Firebase */}
-                <div className="pt-2 border-t border-neutral-800/80">
-                  <button
-                    type="button"
-                    disabled={isMigratingFirebase}
-                    onClick={async () => {
-                      setIsMigratingFirebase(true);
-                      setFirebaseMigrationProgress('0%');
-                      try {
-                        const res = await migrateAllLocalDataToFirestore((pct, table) => {
-                          setFirebaseMigrationProgress(`${pct}% (${table})`);
-                        });
-                        if (res.success) {
-                          success(
-                            language === 'ar'
-                              ? `تم رفع ومزامنة ${res.totalMigrated} سجلاً بنجاح إلى Firebase!`
-                              : `Migration terminée avec succès (${res.totalMigrated} enregistrements envoyés).`
-                          );
-                        } else {
-                          error(res.error || (language === 'ar' ? 'حدث خطأ أثناء المزامنة.' : 'Erreur de migration.'));
-                        }
-                      } finally {
-                        setIsMigratingFirebase(false);
-                        setFirebaseMigrationProgress('');
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs transition disabled:opacity-50 shadow-md cursor-pointer"
-                  >
-                    <Cloud className="w-4 h-4" />
-                    <span>
-                      {isMigratingFirebase
-                        ? (language === 'ar'
-                            ? `جاري الرفع إلى Firebase: ${firebaseMigrationProgress}`
-                            : `Envoi vers Firebase: ${firebaseMigrationProgress}`)
-                        : (language === 'ar'
-                            ? '🚀 رفع كامل البيانات المحلية السابقة إلى Firebase (اختياري)'
-                            : '🚀 Forcer la migration complète vers Firebase')}
-                    </span>
-                  </button>
-                  <p className="text-[10px] text-neutral-400 text-center mt-1.5">
-                    {language === 'ar'
-                      ? 'ملاحظة: العمليات الجديدة تطلع أوتوماتيكياً. هذا الزر لرفع السلع والبيانات القديمة دفعة واحدة إلى السحابة إن رغبت.'
-                      : 'Les nouvelles opérations se synchronisent déjà automatiquement en temps réel.'}
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    success(language === 'ar' ? 'تم تسجيل الخروج بنجاح.' : 'Déconnecté.');
+                  }}
+                  className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-bold border border-rose-500/30 cursor-pointer transition shrink-0"
+                >
+                  {language === 'ar' ? 'تسجيل الخروج / تبديل الرقم' : 'Changer de numéro'}
+                </button>
               </div>
             </div>
           )}
 
           {/* PWA Section */}
-          <div className="p-5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-3 text-xs">
+          <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.45)] space-y-3 text-xs">
             <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 border-b border-neutral-800 pb-3">
               <Smartphone className="w-4 h-4 text-amber-400" />
               <span>{t.settings.pwaTitle}</span>
@@ -1713,19 +1504,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
         onConfirm={handleConfirmClear}
         title={t.settings.clearAllData}
         message={t.settings.clearAllWarning}
-        isDestructive={true}
-      />
-
-      {/* Import Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={showImportConfirm}
-        onClose={() => {
-          setShowImportConfirm(false);
-          setImportJsonPayload(null);
-        }}
-        onConfirm={handleConfirmImport}
-        title={language === 'ar' ? 'استرجاع النسخة الاحتياطية' : 'Restaurer la sauvegarde'}
-        message={t.settings.backupWarning}
         isDestructive={true}
       />
 

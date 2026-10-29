@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Smartphone,
   ShieldCheck,
   AlertTriangle,
   Save,
@@ -9,21 +8,124 @@ import {
   Phone,
   Upload,
   FileText,
+  Printer,
+  BatteryCharging,
   X,
 } from 'lucide-react';
 import { registerUsedPhoneTradeInTransaction, getStoreSettings } from '../db';
-import { PhoneCondition, Product } from '../types';
+import { PhoneCondition, Product, StoreSettings } from '../types';
 import { Modal } from './Modal';
 import { ScanButton } from './ScanButton';
 import { useI18n } from '../i18n';
 import { useToast } from './Toast';
 import { validateIMEI } from '../lib/scanner';
 import { compressImage } from '../lib/image';
+import { printHtmlContent, generateCode128Svg } from '../lib/code128';
 
 interface UsedPhoneTradeInModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved?: (product: Product) => void;
+}
+
+export function printUsedPhoneContractHtml(
+  product: Product,
+  settings: StoreSettings,
+  batteryHealth?: number
+): void {
+  const imei = product.imeiList?.[0]?.imei || product.barcode || 'N/A';
+  const barcodeSvg = generateCode128Svg(imei, { height: 28, moduleWidth: 1.2, showText: false });
+  const dateStr = new Date().toLocaleString('fr-MA');
+  const bat = batteryHealth ?? product.batteryHealth;
+  const conditionText =
+    product.condition === 'used_excellent'
+      ? 'ممتاز (Excellent)'
+      : product.condition === 'used_good'
+      ? 'جيد جداً (Bon état)'
+      : 'مستعمل مقبول (État correct)';
+
+  const html = `
+    <div dir="rtl" style="font-family: Arial, Tahoma, sans-serif; color: #000; padding: 12mm; max-width: 190mm; margin: 0 auto; line-height: 1.55;">
+      <div style="border: 2px solid #000; padding: 14px 18px; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 14px;">
+          <div>
+            <div style="font-size: 18px; font-weight: 900;">${settings.storeName || 'المحل التجاري للهواتف'}</div>
+            <div style="font-size: 12px;">الهاتف: <span dir="ltr">${settings.phone || '-'}</span></div>
+            ${settings.address ? `<div style="font-size: 11px;">العنوان: ${settings.address}</div>` : ''}
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 17px; font-weight: 900; background: #000; color: #fff; padding: 4px 14px; border-radius: 4px;">
+              التزام واعتراف ببيع هاتف مستعمل
+            </div>
+            <div style="font-size: 11px; font-weight: 700; margin-top: 3px;">
+              ATTESTATION DE VENTE & REPRISE D'OCCASION
+            </div>
+          </div>
+          <div style="text-align: left; font-size: 11px; font-family: monospace;" dir="ltr">
+            <div>Date: ${dateStr}</div>
+            <div>Réf: #REP-${product.id || ''}</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div style="border: 1px solid #000; padding: 10px; border-radius: 6px;">
+            <div style="font-size: 13px; font-weight: 900; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-bottom: 6px;">
+              1. معلومات البائع (الزبون المصرح)
+            </div>
+            <div style="font-size: 12px;"><strong>الاسم الكامل:</strong> ${product.tradeInCustomerName || '-'}</div>
+            <div style="font-size: 12px;"><strong>رقم البطاقة الوطنية (CIN):</strong> <span style="font-family: monospace; font-weight: 900; font-size: 13px;">${product.tradeInCustomerCIN || '-'}</span></div>
+            <div style="font-size: 12px;"><strong>رقم الهاتف:</strong> <span dir="ltr" style="font-family: monospace;">${product.tradeInCustomerPhone || '-'}</span></div>
+          </div>
+
+          <div style="border: 1px solid #000; padding: 10px; border-radius: 6px;">
+            <div style="font-size: 13px; font-weight: 900; border-bottom: 1px solid #ccc; padding-bottom: 4px; margin-bottom: 6px;">
+              2. مواصفات الهاتف المستعمل وثمن الشراء
+            </div>
+            <div style="font-size: 12px;"><strong>نوع وموديل الهاتف:</strong> ${product.name}</div>
+            <div style="font-size: 12px;"><strong>رقم التسلسل (IMEI):</strong> <span style="font-family: monospace; font-weight: 900; font-size: 13px;">${imei}</span></div>
+            <div style="font-size: 12px;"><strong>حالة الجهاز:</strong> ${conditionText} ${bat ? `| <strong>حالة البطارية:</strong> ${bat}%` : ''}</div>
+            <div style="font-size: 13px; margin-top: 4px;"><strong>ثمن الشراء المتفق عليه:</strong> <span style="font-family: monospace; font-weight: 900; font-size: 14px;">${product.purchasePrice} DH</span></div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin: 8px 0;">
+          <div style="display: inline-block; max-width: 220px;">${barcodeSvg}</div>
+          <div style="font-family: monospace; font-size: 11px; font-weight: 700;">IMEI: ${imei}</div>
+        </div>
+
+        <div style="background: #f5f5f5; border: 1px solid #000; padding: 10px 12px; border-radius: 6px; font-size: 11.5px; text-align: justify; margin-bottom: 14px;">
+          <strong>تصريح بالشرف والتزام قانوني:</strong><br/>
+          أشهد أنا الموقع أسفله السيد(ة) <strong>${product.tradeInCustomerName || '................'}</strong>، الحامل للبطاقة الوطنية رقم <strong>${product.tradeInCustomerCIN || '................'}</strong>، أنني بعت بمحض إرادتي الهاتف المذكور أعلاه (رقم IMEI: <strong>${imei}</strong>) لفائدة محل <strong>${settings.storeName || 'المحل'}</strong> بمبلغ <strong>${product.purchasePrice} درهم</strong> نقداً.<br/>
+          وأصرح بشرفي أن هذا الهاتف ملكي الشرعي وخالٍ من أي سرقة أو نزاع قانوني أو متابعة، وأتحمل كامل المسؤولية المدنية والجنائية عن مصدره قبل تاريخ وساعة هذا العقد.<br/>
+          <span dir="ltr" style="font-size: 10.5px; display: block; margin-top: 4px;">
+            <em>Je soussigné(e) ${product.tradeInCustomerName || ''}, titulaire de la CIN N° ${product.tradeInCustomerCIN || ''}, déclare sur l'honneur être le propriétaire légitime de l'appareil IMEI ${imei} vendu ce jour au prix de ${product.purchasePrice} DH, et assume l'entière responsabilité légale quant à son origine.</em>
+          </span>
+        </div>
+
+        ${
+          product.tradeInCinImage
+            ? `<div style="text-align: center; margin-bottom: 12px;">
+                <div style="font-size: 11px; font-weight: 700; margin-bottom: 4px;">نسخة البطاقة الوطنية المرفقة (CIN) :</div>
+                <img src="${product.tradeInCinImage}" style="max-height: 120px; border: 1px solid #000; border-radius: 4px;" />
+              </div>`
+            : ''
+        }
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; padding-top: 10px;">
+          <div style="border: 1px dashed #000; height: 85px; padding: 8px; text-align: center; border-radius: 6px;">
+            <div style="font-size: 12px; font-weight: 900;">إمضاء وبصمة البائع (المصرح)</div>
+            <div style="font-size: 10px; color: #444;">Signature du Vendeur (lu et approuvé)</div>
+          </div>
+          <div style="border: 1px dashed #000; height: 85px; padding: 8px; text-align: center; border-radius: 6px;">
+            <div style="font-size: 12px; font-weight: 900;">خاتم وإمضاء المحل</div>
+            <div style="font-size: 10px; color: #444;">Cachet & Signature du Magasin</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  printHtmlContent(html, `@page { size: A4 portrait; margin: 5mm; }`);
 }
 
 export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
@@ -38,6 +140,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
   const [modelName, setModelName] = useState('');
   const [imei, setImei] = useState('');
   const [condition, setCondition] = useState<PhoneCondition>('used_good');
+  const [batteryHealth, setBatteryHealth] = useState<string>('90');
   const [purchasePrice, setPurchasePrice] = useState('');
   const [retailPrice, setRetailPrice] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -61,7 +164,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
     }
   };
 
-  const submitTradeIn = async (printContractPdf: boolean) => {
+  const submitTradeIn = async (contractAction: 'none' | 'pdf' | 'print') => {
     const cleanImei = imei.trim();
     const check = validateIMEI(cleanImei);
 
@@ -78,17 +181,18 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
       return;
     }
 
-    if (!modelName.trim() || !customerName.trim()) {
+    if (!modelName.trim() || !customerName.trim() || !customerCIN.trim()) {
       error(
         isAr
-          ? 'المرجو إدخال موديل الهاتف واسم البائع.'
-          : 'Veuillez renseigner le modèle du téléphone et le nom du vendeur.'
+          ? 'المرجو إدخال موديل الهاتف، اسم البائع، ورقم البطاقة الوطنية (CIN).'
+          : 'Veuillez renseigner le modèle, le nom du vendeur et le N° CIN.'
       );
       return;
     }
 
     const buyPrice = parseFloat(purchasePrice) || 0;
     const sellPrice = parseFloat(retailPrice) || Math.round(buyPrice * 1.2);
+    const parsedBattery = batteryHealth ? Math.min(100, Math.max(1, parseInt(batteryHealth, 10) || 0)) : undefined;
 
     setIsSubmitting(true);
     try {
@@ -96,11 +200,12 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
         modelName: modelName.trim(),
         imei: cleanImei,
         condition,
+        batteryHealth: parsedBattery,
         purchasePrice: buyPrice,
         retailPrice: sellPrice,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim() || undefined,
-        customerCIN: customerCIN.trim() || undefined,
+        customerCIN: customerCIN.trim().toUpperCase(),
         customerCinImage: cinImage,
         notes: notes.trim() || undefined,
       });
@@ -111,7 +216,10 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
           : `Reprise enregistrée et ajoutée au stock : ${created.name}`
       );
 
-      if (printContractPdf) {
+      if (contractAction === 'print') {
+        const settings = await getStoreSettings();
+        printUsedPhoneContractHtml(created, settings, parsedBattery);
+      } else if (contractAction === 'pdf') {
         const settings = await getStoreSettings();
         const { generateTradeInContractPDF } = await import('../lib/pdfGenerator');
         await generateTradeInContractPDF(created, settings, 'save');
@@ -120,6 +228,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
       if (onSaved) onSaved(created);
       setModelName('');
       setImei('');
+      setBatteryHealth('90');
       setPurchasePrice('');
       setRetailPrice('');
       setCustomerName('');
@@ -137,7 +246,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await submitTradeIn(true);
+    await submitTradeIn('print');
   };
 
   return (
@@ -146,8 +255,8 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
       onClose={onClose}
       title={
         isAr
-          ? 'شراء هاتف مستعمل + عقد قانوني رسمي (Contrat de Reprise)'
-          : "Reprise de Téléphone d'Occasion & Contrat Officiel"
+          ? 'شراء هاتف مستعمل (La Reprise) + طبع التزام البيع القانوني'
+          : "Reprise de Téléphone d'Occasion & Contrat Légal"
       }
       maxWidth="lg"
     >
@@ -222,17 +331,17 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
             )}
           </div>
 
-          {/* Condition */}
-          <div className="sm:col-span-2">
+          {/* Condition & Battery Health % */}
+          <div>
             <label className="block text-neutral-300 font-bold mb-1">
               {isAr ? 'حالة الهاتف (État) *' : "État de l'appareil *"}
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-1.5">
               {(
                 [
                   {
                     val: 'used_excellent',
-                    label: isAr ? 'ممتاز (كالجديد)' : 'Excellent (Comme neuf)',
+                    label: isAr ? 'ممتاز' : 'Excellent',
                   },
                   {
                     val: 'used_good',
@@ -240,7 +349,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
                   },
                   {
                     val: 'used_fair',
-                    label: isAr ? 'مقبول / مستعمل' : 'État correct',
+                    label: isAr ? 'مقبول' : 'Correct',
                   },
                 ] as { val: PhoneCondition; label: string }[]
               ).map((opt) => (
@@ -250,11 +359,44 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
                   onClick={() => setCondition(opt.val)}
                   className={`py-2 px-2 rounded-lg font-bold border text-center transition ${
                     condition === opt.val
-                      ? 'bg-amber-500 text-neutral-950 border-amber-400'
+                      ? 'bg-amber-400 text-neutral-950 border-amber-300'
                       : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:border-neutral-700'
                   }`}
                 >
                   {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Battery Health % */}
+          <div>
+            <label className="block text-neutral-300 font-bold mb-1">
+              <BatteryCharging className="w-3.5 h-3.5 inline me-1 text-emerald-400" />
+              {isAr ? 'حالة البطارية (Batterie %)' : 'État de la batterie (%)'}
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={batteryHealth}
+                onChange={(e) => setBatteryHealth(e.target.value)}
+                placeholder="90"
+                className="w-20 bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-2 font-mono font-bold text-emerald-400 text-center focus:outline-hidden focus:border-amber-500"
+              />
+              {[100, 90, 85, 80].map((pct) => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => setBatteryHealth(String(pct))}
+                  className={`px-2 py-1.5 rounded-lg font-mono text-[11px] font-bold border transition ${
+                    Number(batteryHealth) === pct
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                      : 'bg-neutral-950 text-neutral-400 border-neutral-800'
+                  }`}
+                >
+                  {pct}%
                 </button>
               ))}
             </div>
@@ -295,7 +437,7 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
 
           {/* Seller / Customer Identity */}
           <div>
-            <label className="block text-neutral-300 font-medium mb-1">
+            <label className="block text-neutral-300 font-bold mb-1">
               <User className="w-3.5 h-3.5 inline me-1 text-amber-400" />
               {isAr ? 'اسم البائع (الزبون) *' : 'Nom du vendeur (Client) *'}
             </label>
@@ -310,16 +452,17 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-neutral-300 font-medium mb-1">
+            <label className="block text-neutral-300 font-bold mb-1">
               <CreditCard className="w-3.5 h-3.5 inline me-1 text-amber-400" />
               {isAr ? 'رقم البطاقة الوطنية (CIN) *' : 'N° CIN du vendeur *'}
             </label>
             <input
               type="text"
+              required
               value={customerCIN}
-              onChange={(e) => setCustomerCIN(e.target.value)}
+              onChange={(e) => setCustomerCIN(e.target.value.toUpperCase())}
               placeholder="ex: BK123456"
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 font-mono text-neutral-100"
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 font-mono font-bold text-amber-300"
             />
           </div>
 
@@ -339,13 +482,13 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
 
           <div>
             <label className="block text-neutral-300 font-medium mb-1">
-              {isAr ? 'ملاحظات (نسبة البطارية، الملحقات...)' : 'Notes (Batterie %, boîte...)'}
+              {isAr ? 'ملاحظات إضافية (العلبة، الشاحن...)' : 'Notes (Boîte, chargeur...)'}
             </label>
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="ex: Batterie 89%, avec boîte"
+              placeholder="ex: Avec boîte originale"
               className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-100"
             />
           </div>
@@ -372,8 +515,8 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
               <div className="min-w-0">
                 <div className="font-bold text-amber-400">
                   {isAr
-                    ? 'صورة البطاقة الوطنية CIN للبائع (تُدمج في عقد الشراء PDF)'
-                    : 'Photo de la CIN du vendeur (incluse dans le Contrat PDF)'}
+                    ? 'صورة البطاقة الوطنية CIN للبائع (تُدمج في التزام البيع)'
+                    : 'Photo de la CIN du vendeur (incluse dans le Contrat)'}
                 </div>
                 <div className="text-[10px] text-neutral-400">
                   {isAr
@@ -403,29 +546,38 @@ export const UsedPhoneTradeInModal: React.FC<UsedPhoneTradeInModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold transition"
+            className="px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold transition"
           >
             {isAr ? 'إلغاء' : 'Annuler'}
           </button>
           <button
             type="button"
             disabled={isSubmitting}
-            onClick={() => submitTradeIn(false)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-100 font-bold transition disabled:opacity-50"
+            onClick={() => submitTradeIn('none')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-100 font-bold transition disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5 text-amber-400" />
-            <span>{isAr ? 'حفظ في المخزون فقط' : 'Enregistrer seul'}</span>
+            <span>{isAr ? 'حفظ فقط' : 'Enregistrer seul'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => submitTradeIn('pdf')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-amber-500/35 text-amber-300 font-bold transition disabled:opacity-50"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>{isAr ? 'حفظ + عقد PDF' : 'Contrat PDF'}</span>
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-neutral-950 font-black transition shadow-md disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black transition disabled:opacity-50 cursor-pointer"
           >
-            <FileText className="w-4 h-4" />
+            <Printer className="w-4 h-4" />
             <span>
               {isAr
-                ? 'حفظ + تحميل عقد الشراء الرسمي (PDF)'
-                : 'Enregistrer + Contrat de Reprise PDF'}
+                ? 'حفظ + طبع التزام البيع (CIN)'
+                : 'Enregistrer + Imprimer Engagement'}
             </span>
           </button>
         </div>

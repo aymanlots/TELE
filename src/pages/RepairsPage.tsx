@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Copy,
   Lock,
+  Tag,
 } from 'lucide-react';
 import {
   db,
@@ -63,7 +64,7 @@ import {
   DEFAULT_WHATSAPP_TEMPLATES_FR,
   buildRepairTrackingUrl,
 } from '../lib/whatsapp';
-import { generateQrCodeDataUrl } from '../lib/code128';
+import { generateQrCodeDataUrl, generateCode128Svg, printHtmlContent } from '../lib/code128';
 import { ScanButton } from '../components/ScanButton';
 import { ReceiptPrintModal } from '../components/ReceiptPrintModal';
 
@@ -226,7 +227,7 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
   };
 
   // Submit Intake Form
-  const handleSubmitIntake = async (andPrint: boolean) => {
+  const handleSubmitIntake = async (printMode: 'none' | 'receipt' | 'sticker') => {
     if (!customerName.trim() || !customerPhone.trim() || !brand.trim() || !model.trim() || !issue.trim()) {
       error(
         language === 'ar'
@@ -279,7 +280,9 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
 
       setIsAddOpen(false);
 
-      if (andPrint) {
+      if (printMode === 'sticker') {
+        await handlePrintRepairSticker({ ...newOrder, lockCode: lockCode.trim() || undefined });
+      } else if (printMode === 'receipt') {
         const settings = await getStoreSettings();
         const { generateRepairDepositPDF } = await import('../lib/pdfGenerator');
         await generateRepairDepositPDF(newOrder, settings, 'print');
@@ -449,6 +452,60 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
   // Print Delivery Receipt (Opens Thermal 58mm/80mm/A4 Preview + PDF option)
   const handlePrintDelivery = async (repair: RepairOrder) => {
     setReceiptPrintRepair({ repair, type: 'delivery' });
+  };
+
+  // Print 50x30mm Barcode Sticker to stick on the back of the phone entering the workshop (ملصق الإصلاح)
+  const handlePrintRepairSticker = async (repair: RepairOrder) => {
+    const settings = await getStoreSettings();
+    const storeTitle = settings.storeName?.trim() || 'GOLDEN SHOP';
+    const barcodeSvg = generateCode128Svg(repair.repairNumber, {
+      height: 18,
+      moduleWidth: 1.15,
+      showText: false,
+    });
+
+    const stickerHtml = `
+      <div class="repair-sticker">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;border-bottom:1px solid #000;padding-bottom:1px;">
+          <span style="font-size:8px;font-weight:900;text-transform:uppercase;">${storeTitle}</span>
+          <span style="font-size:9px;font-weight:900;font-family:monospace;background:#000;color:#fff;padding:0.5px 3px;border-radius:2px;">${repair.repairNumber}</span>
+        </div>
+        <div style="width:100%;text-align:right;font-size:8.5px;line-height:1.25;margin-top:1px;" dir="rtl">
+          <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📱 ${repair.brand} ${repair.model}</div>
+          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">👤 ${repair.customerName} (${repair.customerPhone})</div>
+          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔧 العطب: <strong>${repair.issue}</strong></div>
+          ${repair.lockCode ? `<div style="font-family:monospace;font-size:8px;">🔓 PIN: <strong>${repair.lockCode}</strong></div>` : ''}
+        </div>
+        <div style="width:100%;margin:1px 0;text-align:center;">
+          ${barcodeSvg}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;font-family:monospace;font-size:8px;font-weight:900;border-top:1px dashed #000;padding-top:1px;">
+          <span>${repair.intakeDate}</span>
+          <span>الثمن: ${repair.agreedPrice} DH (الباقي: ${repair.remainingAmount} DH)</span>
+        </div>
+      </div>
+    `;
+
+    const pageCss = `
+      @page {
+        size: 50mm 30mm;
+        margin: 0mm;
+      }
+      .repair-sticker {
+        width: 50mm;
+        height: 30mm;
+        padding: 1.2mm 1.8mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        font-family: Arial, Tahoma, sans-serif;
+        color: #000;
+        overflow: hidden;
+      }
+    `;
+
+    printHtmlContent(stickerHtml, pageCss);
   };
 
   // Send WhatsApp Direct Notification
@@ -631,7 +688,7 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
       </div>
 
       {/* Search, Stage Filter Tabs & New Repair CTA Glass Bar */}
-      <div className="relative overflow-hidden bg-black/65 backdrop-blur-xl border border-yellow-500/20 rounded-[20px] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] space-y-4">
+      <div className="relative overflow-hidden bg-black/35 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-4">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-yellow-300/40 to-transparent" />
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           <div className="flex items-center gap-2 w-full md:w-96">
@@ -973,6 +1030,19 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
 
                   <button
                     type="button"
+                    onClick={() => handlePrintRepairSticker(repair)}
+                    className="col-span-2 py-2.5 px-3 rounded-full bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-xs flex items-center justify-center gap-1.5 transition active:scale-95 min-h-[42px]"
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    <span>
+                      {language === 'ar'
+                        ? 'طبع ملصق الإصلاح (تيكيت يلصق على الهاتف)'
+                        : 'Imprimer Étiquette Réparation (Coller sur téléphone)'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handlePrintDeposit(repair)}
                     className="py-2.5 px-3 rounded-full bg-black/60 hover:bg-black/80 border border-yellow-500/25 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 min-h-[44px]"
                   >
@@ -1182,6 +1252,19 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
 
                           <button
                             type="button"
+                            onClick={() => handlePrintRepairSticker(repair)}
+                            className="px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-[11px] flex items-center gap-1 transition cursor-pointer"
+                            title={
+                              language === 'ar'
+                                ? 'طبع ملصق الإصلاح (تيكيت الكود بار يلصق على الهاتف)'
+                                : 'Imprimer Étiquette Code-Barres Réparation'
+                            }
+                          >
+                            <Tag className="w-3.5 h-3.5" />
+                            <span>{language === 'ar' ? 'تيكيت الهاتف' : 'Étiquette'}</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handlePrintDeposit(repair)}
                             className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-gray-200 hover:text-[#FFD700] border border-yellow-500/20 transition"
                             title={t.repairs.printDepositReceipt}
@@ -1241,7 +1324,7 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleSubmitIntake(true);
+            handleSubmitIntake('receipt');
           }}
           className="space-y-4 text-xs"
         >
@@ -1521,7 +1604,7 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
           </div>
 
           {/* Form Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-neutral-800">
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-neutral-800">
             <button
               type="button"
               onClick={() => setIsAddOpen(false)}
@@ -1533,16 +1616,30 @@ export const RepairsPage: React.FC<RepairsPageProps> = ({ initialSearch }) => {
             <button
               type="button"
               disabled={isSubmitting}
-              onClick={() => handleSubmitIntake(false)}
+              onClick={() => handleSubmitIntake('none')}
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-750 text-neutral-100 font-bold border border-neutral-700 transition"
             >
               {t.repairs.saveOnly}
             </button>
 
             <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleSubmitIntake('sticker')}
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-amber-500/40 text-amber-400 font-black transition cursor-pointer"
+            >
+              <Tag className="w-4 h-4" />
+              <span>
+                {language === 'ar'
+                  ? 'حفظ + طبع ملصق الهاتف (Étiquette)'
+                  : 'Enregistrer + Étiquette Téléphone'}
+              </span>
+            </button>
+
+            <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold transition shadow-md shadow-amber-500/20 active:scale-95"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black transition active:scale-95 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               <span>{t.repairs.saveAndPrint}</span>

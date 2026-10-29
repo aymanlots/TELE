@@ -237,7 +237,7 @@ export const WarrantySavPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-neutral-900 border border-amber-500/20 shadow-xl shadow-black/80">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.55)]">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-gold-gradient tracking-tight flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-amber-400 drop-shadow-[0_0_6px_rgba(212,175,55,0.4)]" />
@@ -259,7 +259,7 @@ export const WarrantySavPage: React.FC = () => {
       </div>
 
       {/* Warranty Search Checker Section */}
-      <div className="p-5 rounded-xl bg-neutral-900/80 border border-neutral-800 space-y-4">
+      <div className="p-5 rounded-2xl bg-black/35 backdrop-blur-md border border-amber-500/30 shadow-[0_8px_32px_rgba(0,0,0,0.55)] space-y-4">
         <h2 className="text-sm font-semibold text-neutral-200">
           {t.warranty.searchHelper}
         </h2>
