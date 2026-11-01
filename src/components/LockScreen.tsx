@@ -24,7 +24,6 @@ import {
   Mail,
   AtSign,
   Users,
-  Sparkles,
 } from 'lucide-react';
 import { useAccessAuth } from '../lib/accessAuth';
 import { useI18n } from '../i18n';
@@ -37,7 +36,6 @@ import {
   sendPhoneOtp,
   verifyPhoneOtp,
   getActiveShopPhoneNumber,
-  verifyGmailWithGooglePopup,
   firestore,
 } from '../firebase';
 import {
@@ -47,10 +45,9 @@ import {
 import {
   sendEmailOtp,
   verifyEmailOtp,
+  checkFirebaseEmailLinkVerified,
   maskEmail,
   isValidEmail,
-  lookupAccountEmailForPasswordReset,
-  updateShopPasswordInDb,
   getLocalGmailSmtpConfig,
   saveLocalGmailSmtpConfig,
 } from '../lib/emailOtpService';
@@ -60,7 +57,7 @@ import { doc, setDoc } from 'firebase/firestore';
 type Step = 'phone' | 'otp';
 type AuthMode = 'login' | 'worker' | 'register' | 'forgot';
 type RegisterStep = 'form' | 'verify_email';
-type ForgotStep = 'enter_phone' | 'verify_otp' | 'google_verified_reset' | 'success';
+type ForgotStep = 'enter_phone' | 'verify_otp' | 'success';
 type RecoveryMethod = 'gmail' | 'whatsapp';
 
 export const LockScreen: React.FC = () => {
@@ -84,10 +81,13 @@ export const LockScreen: React.FC = () => {
   const [showPin, setShowPin] = useState<boolean>(false);
   const [storeName, setStoreName] = useState<string>('');
   const [gmailInput, setGmailInput] = useState<string>('');
-  const [googleVerifiedEmail, setGoogleVerifiedEmail] = useState<string>('');
   const [registerOtpDigits, setRegisterOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [registerOtpExpiresAt, setRegisterOtpExpiresAt] = useState<number>(0);
   const [registerExpirySecondsLeft, setRegisterExpirySecondsLeft] = useState<number>(0);
+  const [emailDeliveryMode, setEmailDeliveryMode] = useState<
+    'nodemailer_gmail' | 'firebase_official_email' | null
+  >(null);
+  const [forgotLinkVerified, setForgotLinkVerified] = useState<boolean>(false);
   const registerOtpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   // Dedicated Worker Code Login State
@@ -97,7 +97,7 @@ export const LockScreen: React.FC = () => {
   const [otpCode, setOtpCode] = useState<string>('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
-  // Forgot Password: Gmail (Nodemailer / Google Sign-In) by default, or Meta WhatsApp Cloud API
+  // Forgot Password: Gmail by default, or Meta WhatsApp Cloud API
   const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('gmail');
   const [forgotStep, setForgotStep] = useState<ForgotStep>('enter_phone');
   const [recoveryPhone, setRecoveryPhone] = useState<string>('');
@@ -118,7 +118,7 @@ export const LockScreen: React.FC = () => {
   const [rateLimitCooldown, setRateLimitCooldown] = useState<number>(0);
   const [remainingWindowRequests, setRemainingWindowRequests] = useState<number | null>(null);
 
-  // Free Gmail App Password (Nodemailer) inline configuration drawer
+  // Optional Gmail App Password (Nodemailer) inline configuration drawer
   const [showGmailSmtpDrawer, setShowGmailSmtpDrawer] = useState<boolean>(false);
   const [smtpUserInput, setSmtpUserInput] = useState<string>(
     () => getLocalGmailSmtpConfig().gmailUser || ''
@@ -206,6 +206,85 @@ export const LockScreen: React.FC = () => {
     return () => clearInterval(timer);
   }, [registerOtpExpiresAt, registerStep]);
 
+  // Auto-poll during Registration verify_email step: if user clicks the verification link in Gmail, auto-complete registration!
+  useEffect(() => {
+    if (authMode !== 'register' || registerStep !== 'verify_email' || !gmailInput.trim()) return;
+
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      if (cancelled || isLoading) return;
+      const check = await checkFirebaseEmailLinkVerified(gmailInput.trim().toLowerCase());
+      if (check.verified && !cancelled) {
+        clearInterval(interval);
+        if (check.otpCode && check.otpCode.length === 6) {
+          setRegisterOtpDigits(check.otpCode.split(''));
+        }
+        setIsLoading(true);
+        try {
+          const loginRes = await loginWithPhone(
+            phoneNumber,
+            storeName.trim(),
+            pinCode.trim(),
+            'register',
+            gmailInput.trim().toLowerCase(),
+            true
+          );
+          if (!loginRes.success) {
+            setErrorMessage(loginRes.error || (isAr ? 'فشل إتمام التسجيل.' : "Erreur d'inscription."));
+          } else {
+            setSuccessMessage(
+              isAr
+                ? 'تم التأكد من بريدك Gmail تلقائياً وتفعيل حساب محلك بنجاح!'
+                : 'Votre Gmail a été vérifié et votre compte est activé !'
+            );
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [authMode, registerStep, gmailInput, phoneNumber, storeName, pinCode, isLoading, isAr, loginWithPhone]);
+
+  // Auto-poll during Forgot Password verify_otp step: if user clicks the verification link in Gmail, auto-fill the verified OTP!
+  useEffect(() => {
+    if (
+      authMode !== 'forgot' ||
+      forgotStep !== 'verify_otp' ||
+      recoveryMethod !== 'gmail' ||
+      !resolvedAccountEmail ||
+      forgotLinkVerified
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      if (cancelled) return;
+      const check = await checkFirebaseEmailLinkVerified(resolvedAccountEmail);
+      if (check.verified && !cancelled) {
+        setForgotLinkVerified(true);
+        if (check.otpCode && check.otpCode.length === 6) {
+          setOtpDigits(check.otpCode.split(''));
+        }
+        setSuccessMessage(
+          isAr
+            ? '✅ تم التأكد من ملكيتك لبريد Gmail بنجاح عبر الرابط! أدخل الآن كلمة السر الجديدة بالأسفل واضغط على حفظ.'
+            : '✅ Propriété Gmail confirmée via le lien ! Choisissez maintenant votre nouveau mot de passe ci-dessous.'
+        );
+      }
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [authMode, forgotStep, recoveryMethod, resolvedAccountEmail, forgotLinkVerified, isAr]);
+
   const formatMmSs = (totalSec: number): string => {
     const mins = Math.floor(totalSec / 60);
     const secs = totalSec % 60;
@@ -267,82 +346,6 @@ export const LockScreen: React.FC = () => {
     }
   };
 
-  // =======================================================================
-  // 100% FREE GOOGLE POPUP VERIFICATION FOR REGISTRATION
-  // =======================================================================
-  const handleRegisterWithGoogleFree = async () => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    const cleanPhone = normalizeShopPhoneNumber(phoneNumber);
-    if (!cleanPhone || cleanPhone.length < 9) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال رقم هاتف المحل أولاً (مثال: 0612345678)'
-          : 'Veuillez d’abord saisir le numéro de téléphone (ex: 0612345678)'
-      );
-      return;
-    }
-
-    const cleanPin = pinCode.trim();
-    if (!cleanPin || cleanPin.length < 4) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو اختيار الكود السري (4 أرقام على الأقل) أولاً.'
-          : 'Veuillez d’abord choisir un code PIN secret (au moins 4 chiffres).'
-      );
-      return;
-    }
-
-    if (!storeName.trim()) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال اسم المحل التجاري أولاً.'
-          : 'Veuillez d’abord saisir le nom de la boutique.'
-      );
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const googleRes = await verifyGmailWithGooglePopup(gmailInput.trim() || undefined);
-      if (!googleRes.success || !googleRes.email) {
-        setErrorMessage(
-          googleRes.error ||
-            (isAr ? 'لم يكتمل تأكيد حساب Gmail عبر Google.' : 'Échec de vérification Google.')
-        );
-        return;
-      }
-
-      const verifiedMail = googleRes.email.trim().toLowerCase();
-      setGmailInput(verifiedMail);
-      setGoogleVerifiedEmail(verifiedMail);
-      setPhoneNumber(cleanPhone);
-
-      const loginRes = await loginWithPhone(
-        cleanPhone,
-        storeName.trim(),
-        cleanPin,
-        'register',
-        verifiedMail,
-        true
-      );
-
-      if (!loginRes.success) {
-        setErrorMessage(loginRes.error || (isAr ? 'فشل إتمام التسجيل.' : "Erreur d'inscription."));
-        return;
-      }
-
-      setSuccessMessage(
-        isAr
-          ? `تم تأكيد بريدك (${verifiedMail}) مجاناً وتفعيل حساب المحل بنجاح!`
-          : `Compte Gmail (${verifiedMail}) vérifié et activé avec succès !`
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Primary submit: Log in or Register by Phone Number + Secret PIN (+ Mandatory Gmail)
   const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -398,28 +401,6 @@ export const LockScreen: React.FC = () => {
         return;
       }
 
-      // If already verified via Google Popup for this exact email, complete registration immediately
-      if (googleVerifiedEmail && googleVerifiedEmail === cleanGmail) {
-        setIsLoading(true);
-        try {
-          const loginRes = await loginWithPhone(
-            cleanPhone,
-            storeName.trim(),
-            cleanPin,
-            'register',
-            cleanGmail,
-            true
-          );
-          if (!loginRes.success) {
-            setErrorMessage(loginRes.error || (isAr ? 'فشل التسجيل.' : "Erreur d'inscription."));
-          }
-          return;
-        } finally {
-          setIsLoading(false);
-        }
-      }
-
-      // Send 6-digit OTP to the entered Gmail via Nodemailer
       setIsLoading(true);
       try {
         await persistGmailSmtpIfEntered();
@@ -431,25 +412,32 @@ export const LockScreen: React.FC = () => {
         });
 
         if (!sendRes.success) {
-          setShowGmailSmtpDrawer(true);
           setErrorMessage(
             sendRes.error ||
-              (isAr
-                ? 'تعذر إرسال كود التحقق عبر Nodemailer. يمكنك الضغط على الزر الأخضر "تأكيد حساب Gmail مجاناً عبر Google" أو إدخال Gmail App Password بالأسفل.'
-                : "Échec d'envoi du code via Nodemailer.")
+              (isAr ? 'تعذر إرسال رسالة التأكيد إلى Gmail.' : "Échec d'envoi à votre Gmail.")
           );
           return;
         }
 
         setPhoneNumber(cleanPhone);
+        setEmailDeliveryMode(sendRes.deliveryMethod || 'firebase_official_email');
         setRegisterOtpExpiresAt(sendRes.expiresAt || Date.now() + 5 * 60 * 1000);
         setRegisterOtpDigits(['', '', '', '', '', '']);
         setRegisterStep('verify_email');
-        setSuccessMessage(
-          isAr
-            ? `تم إرسال رمز التحقق الحقيقي (6 أرقام) إلى بريدك Gmail: ${sendRes.maskedEmail}. افتح علبة الوارد في Gmail وأدخل الرمز.`
-            : `Code OTP (6 chiffres) envoyé à votre Gmail : ${sendRes.maskedEmail} (valide 5 min).`
-        );
+
+        if (sendRes.deliveryMethod === 'nodemailer_gmail') {
+          setSuccessMessage(
+            isAr
+              ? `تم إرسال كود التحقق (6 أرقام) إلى بريدك Gmail: ${sendRes.maskedEmail}. افتح Gmail وأدخل الكود.`
+              : `Code OTP (6 chiffres) envoyé à votre Gmail : ${sendRes.maskedEmail}.`
+          );
+        } else {
+          setSuccessMessage(
+            isAr
+              ? `تم إرسال رسالة التأكيد بنجاح إلى بريدك (${cleanGmail}) من طرف Google (noreply@tele-projet.firebaseapp.com)! افتح تطبيق Gmail (أو قسم Spam) واضغط على الرابط داخل الرسالة أو أدخل الكود المكون من 6 أرقام الموجود بعد علامة (+) في عنوان البريد داخل الرسالة.`
+              : `Email de confirmation envoyé à (${cleanGmail}) par Google (noreply@tele-projet.firebaseapp.com). Cliquez sur le lien dans l'email ou saisissez les 6 chiffres après le signe (+).`
+          );
+        }
         return;
       } finally {
         setIsLoading(false);
@@ -512,33 +500,24 @@ export const LockScreen: React.FC = () => {
     }
   };
 
-  // Verify Registration Email OTP & Unlock Account
+  // Verify Registration Email OTP (or Link Click) & Unlock Account
   const handleVerifyRegisterEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const code = registerOtpDigits.join('').trim();
-    if (code.length !== 6) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال رمز التحقق كاملاً المكون من 6 أرقام المرسل إلى بريدك Gmail.'
-          : 'Veuillez saisir les 6 chiffres du code OTP reçu sur votre Gmail.'
-      );
-      return;
-    }
-
     if (registerExpirySecondsLeft <= 0) {
       setErrorMessage(
         isAr
-          ? 'انتهت صلاحية رمز التحقق (صالح لمدة 5 دقائق فقط). اضغط على إعادة الإرسال.'
-          : 'Le code OTP a expiré (5 min). Veuillez demander un renvoi.'
+          ? 'انتهت صلاحية الرمز (5 دقائق). اضغط على إعادة الإرسال.'
+          : 'Le code a expiré (5 min). Veuillez demander un renvoi.'
       );
       return;
     }
 
     setIsLoading(true);
     try {
+      const code = registerOtpDigits.join('').trim();
       const verifyRes = await verifyEmailOtp({
         email: gmailInput.trim().toLowerCase(),
         otp: code,
@@ -547,12 +526,14 @@ export const LockScreen: React.FC = () => {
 
       if (!verifyRes.success) {
         setErrorMessage(
-          verifyRes.error || (isAr ? 'رمز التحقق غير صحيح.' : 'Code OTP incorrect.')
+          verifyRes.error ||
+            (isAr
+              ? 'لم يتم تأكيد البريد بعد. افتح الرسالة في Gmail واضغط على رابط التأكيد داخلها، أو أدخل الكود المكون من 6 أرقام الموجود بعد علامة (+).'
+              : 'Veuillez cliquer sur le lien dans votre Gmail ou saisir le code à 6 chiffres.')
         );
         return;
       }
 
-      // Verification success: register account with verified Gmail (correct parameter order!)
       const loginRes = await loginWithPhone(
         phoneNumber,
         storeName.trim(),
@@ -577,135 +558,12 @@ export const LockScreen: React.FC = () => {
     }
   };
 
-  // =======================================================================
-  // FORGOT PASSWORD: 100% FREE GOOGLE VERIFICATION OF REGISTERED GMAIL
-  // =======================================================================
-  const handleGooglePasswordRecovery = async () => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    const inputVal = (recoveryInput || recoveryPhone || phoneNumber || '').trim();
-    if (!inputVal) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال رقم الهاتف أو بريد Gmail المسجل به المحل أولاً.'
-          : 'Veuillez saisir votre téléphone ou adresse Gmail enregistrée.'
-      );
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const lookup = await lookupAccountEmailForPasswordReset(inputVal);
-      if (!lookup.found || !lookup.email) {
-        setErrorMessage(
-          lookup.error ||
-            (isAr
-              ? 'هذا الحساب غير مسجل أو لا يوجد بريد Gmail مرتبط به.'
-              : 'Compte introuvable ou aucun Gmail associé.')
-        );
-        return;
-      }
-
-      const expectedGmail = lookup.email.trim().toLowerCase();
-      const googleRes = await verifyGmailWithGooglePopup(expectedGmail);
-
-      if (!googleRes.success || !googleRes.email) {
-        setErrorMessage(
-          googleRes.error ||
-            (isAr ? 'لم يكتمل التحقق من حساب Gmail عبر Google.' : 'Échec de vérification Google.')
-        );
-        return;
-      }
-
-      const signedInEmail = googleRes.email.trim().toLowerCase();
-      if (signedInEmail !== expectedGmail) {
-        setErrorMessage(
-          isAr
-            ? `البريد الذي اخترته (${signedInEmail}) لا يطابق البريد المسجل لهذا المحل (${lookup.maskedEmail || maskEmail(expectedGmail)}). المرجو تسجيل الدخول بنفس حساب Gmail الذي سجلت به المحل.`
-            : `L'email sélectionné (${signedInEmail}) ne correspond pas au Gmail enregistré (${lookup.maskedEmail}).`
-        );
-        return;
-      }
-
-      setResolvedAccountEmail(expectedGmail);
-      setMaskedAccountEmail(lookup.maskedEmail || maskEmail(expectedGmail));
-      setResolvedShopPhone(lookup.shopPhone || normalizeShopPhoneNumber(inputVal));
-      setResolvedUserName(lookup.userName || (isAr ? 'المدير' : 'Gérant'));
-      setResolvedStoreName(lookup.storeName || storeName || (isAr ? 'المحل الذهبي' : 'Boutique'));
-      setNewPassword('');
-      setConfirmNewPassword('');
-      setForgotStep('google_verified_reset');
-      setSuccessMessage(
-        isAr
-          ? `تم التأكد من ملكيتك لبريد (${signedInEmail}) بنجاح! يمكنك الآن تعيين كلمة السر الجديدة.`
-          : `Propriété du compte (${signedInEmail}) confirmée ! Choisissez votre nouveau code.`
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSaveNewPasswordAfterGoogle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    const cleanNewPass = newPassword.trim();
-    if (cleanNewPass.length < 4) {
-      setErrorMessage(
-        isAr
-          ? 'كلمة السر الجديدة يجب أن تتكون من 4 أرقام على الأقل.'
-          : 'Le nouveau code secret doit contenir au moins 4 chiffres.'
-      );
-      return;
-    }
-
-    if (cleanNewPass !== confirmNewPassword.trim()) {
-      setErrorMessage(
-        isAr
-          ? 'تأكيد كلمة السر غير متطابق مع كلمة السر الجديدة.'
-          : 'La confirmation ne correspond pas au nouveau code secret.'
-      );
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const targetPhone =
-        resolvedShopPhone || normalizeShopPhoneNumber(recoveryPhone || phoneNumber);
-      const updated = await updateShopPasswordInDb(
-        targetPhone,
-        cleanNewPass,
-        resolvedAccountEmail
-      );
-
-      if (!updated.success) {
-        setErrorMessage(updated.error || (isAr ? 'فشل تحديث كلمة السر.' : 'Échec de mise à jour.'));
-        return;
-      }
-
-      if (targetPhone) {
-        setPhoneNumber(targetPhone);
-        setRecoveryPhone(targetPhone);
-      }
-      setPinCode(cleanNewPass);
-      setForgotStep('success');
-      setSuccessMessage(
-        isAr
-          ? 'تم تغيير كلمة السر بنجاح وتحديثها في قاعدة البيانات!'
-          : 'Votre mot de passe a été modifié avec succès !'
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Forgot Password: Request 6-digit OTP via Registered Gmail (Nodemailer)
+  // Forgot Password: Request OTP / Verification Email via Registered Gmail
   const handleRequestEmailResetOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setForgotLinkVerified(false);
 
     const inputVal = (recoveryInput || recoveryPhone || phoneNumber || '').trim();
     if (!inputVal) {
@@ -722,11 +580,8 @@ export const LockScreen: React.FC = () => {
       await persistGmailSmtpIfEntered();
       const res = await sendEmailRecoveryCode(inputVal);
       if (!res.success) {
-        if (res.account?.found) {
-          setShowGmailSmtpDrawer(true);
-        }
         setErrorMessage(
-          res.error || (isAr ? 'تعذر إرسال كود الاسترجاع إلى Gmail' : "Impossible d'envoyer le code")
+          res.error || (isAr ? 'تعذر إرسال رسالة الاسترجاع إلى Gmail' : "Impossible d'envoyer le code")
         );
         return;
       }
@@ -738,16 +593,25 @@ export const LockScreen: React.FC = () => {
       setResolvedShopPhone(res.account?.shopPhone || '');
       setResolvedUserName(res.account?.userName || (isAr ? 'المدير' : 'Gérant'));
       setResolvedStoreName(res.account?.storeName || storeName || (isAr ? 'المحل الذهبي' : 'Boutique'));
+      setEmailDeliveryMode(res.deliveryMethod || 'firebase_official_email');
       setOtpExpiresAt(res.expiresAt || Date.now() + 5 * 60 * 1000);
       setOtpDigits(['', '', '', '', '', '']);
       setForgotStep('verify_otp');
       setRecoveryMethod('gmail');
 
-      setSuccessMessage(
-        isAr
-          ? `تم إرسال كود استرجاع كلمة المرور (6 أرقام) مباشرة إلى بريدك Gmail المسجل: ${maskedFound}. افتح Gmail وأدخل الكود (صالح 5 دقائق).`
-          : `Code OTP (6 chiffres) envoyé directement à votre Gmail : ${maskedFound} (valide 5 min).`
-      );
+      if (res.deliveryMethod === 'nodemailer_gmail') {
+        setSuccessMessage(
+          isAr
+            ? `تم إرسال كود استرجاع كلمة المرور (6 أرقام) مباشرة إلى بريدك Gmail المسجل: ${maskedFound}.`
+            : `Code OTP (6 chiffres) envoyé directement à votre Gmail : ${maskedFound}.`
+        );
+      } else {
+        setSuccessMessage(
+          isAr
+            ? `تم إرسال رسالة الاسترجاع إلى بريدك المسجل (${maskedFound}) من طرف Google (noreply@tele-projet.firebaseapp.com)! افتح Gmail واضغط على الرابط داخل الرسالة أو أدخل الأرقام الـ 6 الموجودة بعد علامة (+) في عنوان البريد.`
+            : `Email envoyé à votre Gmail (${maskedFound}) par Google. Cliquez sur le lien dans l'email ou saisissez les 6 chiffres après (+).`
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -853,21 +717,11 @@ export const LockScreen: React.FC = () => {
     }
   };
 
-  // Forgot Password Step 2: Verify 6-digit OTP & Update Password in Database
+  // Forgot Password Step 2: Verify 6-digit OTP (or Link Click) & Update Password in Database
   const handleVerifyOtpAndResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
-
-    const combinedOtp = otpDigits.join('').trim();
-    if (combinedOtp.length !== 6) {
-      setErrorMessage(
-        isAr
-          ? 'المرجو إدخال كود التحقق المكون من 6 أرقام كاملاً.'
-          : 'Veuillez saisir les 6 chiffres du code OTP.'
-      );
-      return;
-    }
 
     if (expirySecondsLeft <= 0) {
       setErrorMessage(
@@ -893,6 +747,16 @@ export const LockScreen: React.FC = () => {
         isAr
           ? 'تأكيد كلمة السر غير متطابق مع كلمة السر الجديدة.'
           : 'La confirmation ne correspond pas au nouveau code secret.'
+      );
+      return;
+    }
+
+    const combinedOtp = otpDigits.join('').trim();
+    if (recoveryMethod === 'whatsapp' && combinedOtp.length !== 6) {
+      setErrorMessage(
+        isAr
+          ? 'المرجو إدخال كود التحقق المكون من 6 أرقام كاملاً.'
+          : 'Veuillez saisir les 6 chiffres du code OTP.'
       );
       return;
     }
@@ -975,7 +839,7 @@ export const LockScreen: React.FC = () => {
     }
   };
 
-  // Step 2: Confirm SMS OTP & Login (Strictly no hardcoded bypass!)
+  // Step 2: Confirm SMS OTP & Login
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -1129,7 +993,7 @@ export const LockScreen: React.FC = () => {
           <p className="text-xs text-amber-400 mt-1 font-semibold drop-shadow">
             {authMode === 'forgot'
               ? isAr
-                ? 'استرجع كلمة السر عبر حساب Gmail المسجل به المحل'
+                ? 'استرجع كلمة السر مباشرة عبر بريد Gmail المسجل به المحل'
                 : 'Récupérez votre mot de passe via votre Gmail enregistré'
               : authMode === 'worker'
               ? isAr
@@ -1290,11 +1154,10 @@ export const LockScreen: React.FC = () => {
         )}
 
         {/* =====================================================================
-            FORGOT PASSWORD: GMAIL (GOOGLE FREE / NODEMAILER) OR WHATSAPP
+            FORGOT PASSWORD: GMAIL OR WHATSAPP
            ===================================================================== */}
         {authMode === 'forgot' && (
           <div className="space-y-4 text-start">
-            {/* Recovery Channel Selector Tabs */}
             {forgotStep === 'enter_phone' && (
               <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-black/45 border border-white/10 text-xs font-bold">
                 <button
@@ -1360,24 +1223,13 @@ export const LockScreen: React.FC = () => {
                       className="w-full bg-black/40 backdrop-blur-sm border border-amber-500/40 focus:border-amber-400 rounded-xl ps-10 pe-4 py-3 text-xs sm:text-sm font-bold text-white placeholder-white/45 focus:outline-hidden transition"
                     />
                   </div>
+                  <p className="text-[11px] text-white/80 mt-1.5 leading-relaxed">
+                    {isAr
+                      ? 'سيقوم النظام بالبحث عن حسابك وإرسال رسالة وكود الاسترجاع مباشرة إلى بريدك Gmail المسجل.'
+                      : 'Le système envoie directement un email de récupération à votre Gmail enregistré.'}
+                  </p>
                 </div>
 
-                {/* 100% Free Instant Google Gmail Ownership Verification */}
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleGooglePasswordRecovery}
-                  className="w-full py-3 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black text-xs sm:text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-                >
-                  <Sparkles className="w-4 h-4 shrink-0" />
-                  <span>
-                    {isAr
-                      ? 'استرجاع مجاني وفوري عبر حساب Gmail المسجل (Google)'
-                      : 'Récupération gratuite via Google Gmail'}
-                  </span>
-                </button>
-
-                {/* Or send 6-digit OTP via Nodemailer */}
                 <button
                   type="submit"
                   disabled={isLoading}
@@ -1387,7 +1239,7 @@ export const LockScreen: React.FC = () => {
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       <span>
-                        {isAr ? 'جاري التحقق والإرسال...' : 'Vérification et envoi...'}
+                        {isAr ? 'جاري إرسال الرسالة إلى بريدك Gmail...' : 'Envoi en cours...'}
                       </span>
                     </>
                   ) : (
@@ -1395,71 +1247,12 @@ export const LockScreen: React.FC = () => {
                       <Send className="w-4 h-4" />
                       <span>
                         {isAr
-                          ? 'إرسال كود (6 أرقام) إلى Gmail عبر Nodemailer'
-                          : 'Envoyer le code OTP (6 chiffres) via Nodemailer'}
+                          ? 'إرسال رسالة وكود الاسترجاع إلى Gmail'
+                          : 'Envoyer le code à mon Gmail'}
                       </span>
                     </>
                   )}
                 </button>
-
-                {/* Collapsible Free Gmail App Password Setup for Nodemailer */}
-                <div className="rounded-xl bg-black/40 border border-white/15 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setShowGmailSmtpDrawer(!showGmailSmtpDrawer)}
-                    className="w-full px-3.5 py-2.5 flex items-center justify-between text-[11px] font-bold text-amber-300 hover:bg-white/5 transition cursor-pointer"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-                      <span>
-                        {isAr
-                          ? 'إعداد Gmail App Password المجاني لـ Nodemailer'
-                          : 'Configurer Gmail App Password (Gratuit)'}
-                      </span>
-                    </span>
-                    <span className="text-[10px] text-white/60">
-                      {showGmailSmtpDrawer ? (isAr ? 'إخفاء ▲' : 'Masquer ▲') : isAr ? 'إعداد ▼' : 'Configurer ▼'}
-                    </span>
-                  </button>
-
-                  {showGmailSmtpDrawer && (
-                    <div className="p-3.5 border-t border-white/10 space-y-2.5 bg-black/55 text-xs">
-                      <p className="text-[11px] text-white/80 leading-relaxed">
-                        {isAr
-                          ? 'لإرسال الكود مجاناً عبر Nodemailer بدون شراء دومين: افتح حسابك Google ← الأمان ← التحقق بخطوتين ← كلمات مرور التطبيقات (App Passwords) وانسخ الكود المكون من 16 حرفاً:'
-                          : 'Créez un "Mot de passe d’application" (16 caractères) gratuitement dans votre compte Google > Sécurité :'}
-                      </p>
-                      <div>
-                        <label className="block text-[10px] text-white/75 mb-1 font-bold">
-                          {isAr ? 'بريد المرسل (GMAIL_USER)' : 'Email expéditeur (GMAIL_USER)'}
-                        </label>
-                        <input
-                          type="email"
-                          dir="ltr"
-                          value={smtpUserInput}
-                          onChange={(e) => setSmtpUserInput(e.target.value)}
-                          placeholder="votre.boutique@gmail.com"
-                          className="w-full bg-black/60 border border-white/20 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-white/75 mb-1 font-bold">
-                          {isAr
-                            ? 'كود تطبيق جيمايل من 16 حرفاً (GMAIL_APP_PASSWORD)'
-                            : 'Gmail App Password (16 lettres)'}
-                        </label>
-                        <input
-                          type="password"
-                          dir="ltr"
-                          value={smtpPassInput}
-                          onChange={(e) => setSmtpPassInput(e.target.value)}
-                          placeholder="abcd efgh ijkl mnop"
-                          className="w-full bg-black/60 border border-white/20 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono text-xs"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
 
                 <div className="pt-2 border-t border-white/10 text-center">
                   <button
@@ -1635,102 +1428,7 @@ export const LockScreen: React.FC = () => {
               </form>
             )}
 
-            {/* SUB-STEP 2A: Google Verified Password Reset Form */}
-            {forgotStep === 'google_verified_reset' && (
-              <form onSubmit={handleSaveNewPasswordAfterGoogle} className="space-y-4">
-                <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 space-y-1">
-                  <div className="flex items-center gap-2 text-xs font-black text-emerald-300">
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                    <span>
-                      {isAr
-                        ? `تم التحقق من حساب Gmail المسجل (${resolvedAccountEmail})`
-                        : `Gmail vérifié (${resolvedAccountEmail})`}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-white/80">
-                    {resolvedStoreName} • {resolvedUserName}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      {isAr
-                        ? 'كلمة السر / الكود السري الجديد (4 أرقام على الأقل)'
-                        : 'Nouveau mot de passe / Code PIN (min. 4 chiffres)'}
-                    </label>
-                    <div className="relative" dir="ltr">
-                      <KeyRound className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type={showNewPassword ? 'text' : 'password'}
-                        inputMode="numeric"
-                        dir="ltr"
-                        required
-                        autoFocus
-                        minLength={4}
-                        maxLength={8}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                        placeholder="••••"
-                        className="w-full bg-black/40 border border-amber-500/35 focus:border-amber-400 rounded-xl pl-10 pr-10 py-2.5 text-base font-mono font-black tracking-[0.3em] text-amber-400 placeholder-white/40 focus:outline-hidden text-center"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/70 hover:text-amber-400 transition cursor-pointer"
-                      >
-                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-white mb-1.5">
-                      {isAr ? 'تأكيد كلمة السر الجديدة' : 'Confirmer le nouveau code secret'}
-                    </label>
-                    <div className="relative" dir="ltr">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type={showNewPassword ? 'text' : 'password'}
-                        inputMode="numeric"
-                        dir="ltr"
-                        required
-                        minLength={4}
-                        maxLength={8}
-                        value={confirmNewPassword}
-                        onChange={(e) =>
-                          setConfirmNewPassword(e.target.value.replace(/\D/g, '').slice(0, 8))
-                        }
-                        placeholder="••••"
-                        className="w-full bg-black/40 border border-amber-500/35 focus:border-amber-400 rounded-xl pl-10 pr-10 py-2.5 text-base font-mono font-black tracking-[0.3em] text-emerald-400 placeholder-white/40 focus:outline-hidden text-center"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 font-black text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-                >
-                  {isLoading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>{isAr ? 'جاري حفظ كلمة السر الجديدة...' : 'Enregistrement...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>
-                        {isAr ? 'حفظ كلمة السر الجديدة' : 'Enregistrer le nouveau mot de passe'}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* SUB-STEP 2B: Enter 6-Digit OTP + New Password (NO FAKE CODE ON SCREEN!) */}
+            {/* SUB-STEP 2: Verify via Link Click in Gmail OR 6-Digit OTP + Set New Password */}
             {forgotStep === 'verify_otp' && (
               <form onSubmit={handleVerifyOtpAndResetPassword} className="space-y-4">
                 <div className="p-3.5 rounded-xl bg-black/45 border border-amber-500/35 space-y-2">
@@ -1774,32 +1472,31 @@ export const LockScreen: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-amber-300/90 flex items-center justify-between pt-1 border-t border-white/10">
-                    <span>
-                      {expirySecondsLeft > 0
-                        ? isAr
-                          ? '⏳ صلاحية الكود المرسل: 5 دقائق'
-                          : '⏳ Validité du code : 5 minutes'
-                        : isAr
-                        ? '⚠️ انتهت صلاحية الكود (مرت 5 دقائق)!'
-                        : '⚠️ Code expiré (5 minutes écoulées) !'}
-                    </span>
-                    {remainingWindowRequests !== null && (
-                      <span className="text-[10px] text-white/70">
-                        {isAr
-                          ? `الطلبات المتبقية: ${remainingWindowRequests}/3`
-                          : `Essais restants: ${remainingWindowRequests}/3`}
-                      </span>
-                    )}
-                  </div>
+                  {recoveryMethod === 'gmail' && emailDeliveryMode === 'firebase_official_email' && (
+                    <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-200 leading-relaxed">
+                      {forgotLinkVerified ? (
+                        <span className="font-black text-emerald-300">
+                          {isAr
+                            ? '✅ تم التأكد من ضغطك على رابط التفعيل في Gmail! أدخل كلمة السر الجديدة بالأسفل.'
+                            : '✅ Lien Gmail vérifié ! Saisissez votre nouveau mot de passe.'}
+                        </span>
+                      ) : (
+                        <span>
+                          {isAr
+                            ? '📩 افتح تطبيق Gmail (تحقق من علبة الوارد أو Spam لرسالة من noreply@tele-projet.firebaseapp.com): إما اضغط على الرابط داخل الرسالة وسيتعرف عليه التطبيق تلقائياً، أو اكتب الأرقام الـ 6 المكتوبة بعد علامة (+) في بريدك داخل الرسالة.'
+                            : '📩 Ouvrez Gmail (Inbox ou Spam) : cliquez sur le lien dans l’email ou saisissez les 6 chiffres après le signe (+).'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* 6-Digit OTP Input Boxes */}
                 <div>
                   <label className="block text-xs font-bold text-white mb-2 text-center">
                     {isAr
-                      ? 'أدخل كود التحقق المكون من 6 أرقام الذي وصلك في الرسالة'
-                      : 'Saisissez le code OTP à 6 chiffres reçu'}
+                      ? 'كود التحقق المكون من 6 أرقام (أو اضغط على الرابط في Gmail)'
+                      : 'Code OTP à 6 chiffres (ou cliquez sur le lien dans Gmail)'}
                   </label>
                   <div className="grid grid-cols-6 gap-2" dir="ltr">
                     {otpDigits.map((digit, idx) => (
@@ -1893,8 +1590,8 @@ export const LockScreen: React.FC = () => {
                       <CheckCircle2 className="w-4 h-4" />
                       <span>
                         {isAr
-                          ? 'تأكيد الكود وحفظ كلمة السر الجديدة'
-                          : 'Valider le code et changer le mot de passe'}
+                          ? 'تأكيد وحفظ كلمة السر الجديدة'
+                          : 'Valider et changer le mot de passe'}
                       </span>
                     </>
                   )}
@@ -1939,7 +1636,7 @@ export const LockScreen: React.FC = () => {
                         ? `إعادة الإرسال بعد (${rateLimitCooldown}ث)`
                         : `Renvoyer (${rateLimitCooldown}s)`
                       : isAr
-                      ? 'إعادة إرسال كود جديد'
+                      ? 'إعادة إرسال رسالة جديدة'
                       : 'Renvoyer un nouveau code'}
                   </button>
                 </div>
@@ -2000,10 +1697,10 @@ export const LockScreen: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 1: Registration Email OTP Verification Step (NO FAKE CODE ON SCREEN!) */}
+        {/* STEP 1: Registration Email OTP / Link Verification Step */}
         {authMode === 'register' && registerStep === 'verify_email' && (
           <form onSubmit={handleVerifyRegisterEmail} className="space-y-4 text-start">
-            <div className="p-3.5 rounded-xl bg-black/45 border border-amber-500/35 space-y-2">
+            <div className="p-3.5 rounded-xl bg-black/45 border border-amber-500/35 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-amber-400 shrink-0" />
@@ -2011,8 +1708,8 @@ export const LockScreen: React.FC = () => {
                     <div className="text-xs font-black text-white">
                       {isAr ? 'تأكيد بريد Gmail لتفعيل الحساب' : "Vérification de l'adresse Gmail"}
                     </div>
-                    <div className="text-[11px] text-white/75 font-mono" dir="ltr">
-                      {maskEmail(gmailInput)}
+                    <div className="text-[11px] text-amber-300 font-mono font-bold" dir="ltr">
+                      {gmailInput.trim().toLowerCase()}
                     </div>
                   </div>
                 </div>
@@ -2036,14 +1733,25 @@ export const LockScreen: React.FC = () => {
                 </div>
               </div>
 
-              <div className="text-[11px] text-amber-300/90 pt-1 border-t border-white/10">
-                {registerExpirySecondsLeft > 0
-                  ? isAr
-                    ? '⏳ افتح علبة الوارد في بريدك Gmail وأدخل الكود المكون من 6 أرقام (صالح 5 دقائق)'
-                    : '⏳ Ouvrez votre boîte Gmail et saisissez le code à 6 chiffres (valide 5 min)'
-                  : isAr
-                  ? '⚠️ انتهت صلاحية الرمز! اضغط على إعادة الإرسال.'
-                  : '⚠️ Code expiré ! Cliquez sur renvoyer.'}
+              <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-[11px] text-emerald-200 leading-relaxed space-y-1">
+                <div className="font-black text-emerald-300 flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>
+                    {isAr
+                      ? 'جاري انتظار تأكيدك من تطبيق Gmail...'
+                      : 'En attente de confirmation depuis Gmail...'}
+                  </span>
+                </div>
+                <p>
+                  {isAr
+                    ? '1️⃣ افتح تطبيق Gmail على هاتفك (تفقد علبة الوارد أو قسم الرسائل غير المرغوب فيها Spam لرسالة من noreply@tele-projet.firebaseapp.com).'
+                    : '1️⃣ Ouvrez Gmail (Inbox ou Spam, message de noreply@tele-projet.firebaseapp.com).'}
+                </p>
+                <p>
+                  {isAr
+                    ? '2️⃣ إما اضغط على الرابط الأزرق داخل الرسالة وسيدخلك التطبيق تلقائياً، أو انقل الكود المكون من 6 أرقام الموجود بعد علامة (+) في بريدك داخل الرسالة واكتبه بالأسفل:'
+                    : '2️⃣ Cliquez sur le lien dans l’email (activation automatique) ou saisissez les 6 chiffres situés après le (+) dans l’email :'}
+                </p>
               </div>
             </div>
 
@@ -2051,8 +1759,8 @@ export const LockScreen: React.FC = () => {
             <div>
               <label className="block text-xs font-bold text-white mb-2 text-center">
                 {isAr
-                  ? 'أدخل رمز التحقق (6 أرقام) المرسل إلى بريدك Gmail'
-                  : 'Saisissez le code à 6 chiffres reçu sur votre Gmail'}
+                  ? 'أدخل الكود المكون من 6 أرقام (أو اضغط على الرابط في Gmail)'
+                  : 'Saisissez le code à 6 chiffres (ou cliquez sur le lien dans Gmail)'}
               </label>
               <div className="grid grid-cols-6 gap-2" dir="ltr">
                 {registerOtpDigits.map((digit, idx) => (
@@ -2086,7 +1794,11 @@ export const LockScreen: React.FC = () => {
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{isAr ? 'تأكيد البريد وتفعيل الحساب' : 'Valider et activer le compte'}</span>
+                  <span>
+                    {isAr
+                      ? 'تأكيد البريد وتفعيل الحساب الآن'
+                      : 'Valider et activer le compte'}
+                  </span>
                 </>
               )}
             </button>
@@ -2111,7 +1823,7 @@ export const LockScreen: React.FC = () => {
                 onClick={() => handlePhoneSubmit(new Event('submit') as any)}
                 className="text-amber-400 hover:underline disabled:opacity-50 font-bold cursor-pointer"
               >
-                {isAr ? 'إعادة إرسال الرمز إلى Gmail' : 'Renvoyer le code'}
+                {isAr ? 'إعادة إرسال الرسالة إلى Gmail' : 'Renvoyer l’email'}
               </button>
             </div>
           </form>
@@ -2259,22 +1971,12 @@ export const LockScreen: React.FC = () => {
                         className="w-full bg-black/35 backdrop-blur-sm border border-amber-500/35 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold text-white placeholder-white/45 focus:outline-hidden transition text-left"
                       />
                     </div>
-                  </div>
-
-                  {/* 100% Free Instant Google Verification Button */}
-                  <button
-                    type="button"
-                    disabled={isLoading}
-                    onClick={handleRegisterWithGoogleFree}
-                    className="w-full py-3 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black text-xs sm:text-sm transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-                  >
-                    <Sparkles className="w-4 h-4 shrink-0" />
-                    <span>
+                    <p className="text-[11px] text-white/80 mt-1 leading-relaxed drop-shadow">
                       {isAr
-                        ? 'تأكيد حساب Gmail مجاناً وبنقرة واحدة عبر Google'
-                        : 'Vérifier mon Gmail gratuitement avec Google'}
-                    </span>
-                  </button>
+                        ? 'ستصلك رسالة تأكيد حقيقية ومجانية إلى بريدك Gmail لتفعيل حسابك واسترجاع كلمة السر عند نسيانها.'
+                        : 'Un email de confirmation gratuit sera envoyé à votre Gmail.'}
+                    </p>
+                  </div>
 
                   {/* Optional Collapsible Free Gmail App Password Setup for Nodemailer */}
                   <div className="rounded-xl bg-black/40 border border-white/15 overflow-hidden">
@@ -2287,7 +1989,7 @@ export const LockScreen: React.FC = () => {
                         <Settings2 className="w-3.5 h-3.5 text-amber-400" />
                         <span>
                           {isAr
-                            ? 'إعداد Gmail App Password المجاني لـ Nodemailer (اختياري)'
+                            ? 'إعداد Gmail App Password لـ Nodemailer (اختياري)'
                             : 'Configurer Gmail App Password (Optionnel)'}
                         </span>
                       </span>
@@ -2347,15 +2049,17 @@ export const LockScreen: React.FC = () => {
                   {isLoading ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>{isAr ? 'جاري التحقق...' : 'Vérification...'}</span>
+                      <span>
+                        {isAr ? 'جاري إرسال الرسالة إلى Gmail...' : 'Envoi en cours...'}
+                      </span>
                     </>
                   ) : authMode === 'register' ? (
                     <>
                       <Send className="w-4 h-4" />
                       <span>
                         {isAr
-                          ? 'إرسال كود (6 أرقام) إلى Gmail عبر Nodemailer'
-                          : 'Envoyer le code OTP (6 chiffres) via Nodemailer'}
+                          ? 'إرسال رسالة وكود التفعيل إلى Gmail'
+                          : 'Envoyer l’email de confirmation à Gmail'}
                       </span>
                     </>
                   ) : (
