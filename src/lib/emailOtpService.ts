@@ -1,6 +1,34 @@
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { firestore, normalizeShopPhoneNumber } from '../firebase';
-import { getStoreSettings } from '../db';
+import { getStoreSettings, saveStoreSettings } from '../db';
+
+export const LOCAL_GMAIL_SMTP_KEY = 'golden_shop_gmail_smtp_config';
+
+export interface LocalGmailSmtpConfig {
+  gmailUser: string;
+  gmailAppPassword: string;
+}
+
+export function getLocalGmailSmtpConfig(): LocalGmailSmtpConfig {
+  try {
+    const raw = localStorage.getItem(LOCAL_GMAIL_SMTP_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        gmailUser: parsed.gmailUser || '',
+        gmailAppPassword: parsed.gmailAppPassword || '',
+      };
+    }
+  } catch {}
+  return { gmailUser: '', gmailAppPassword: '' };
+}
+
+export function saveLocalGmailSmtpConfig(cfg: Partial<LocalGmailSmtpConfig>): void {
+  try {
+    const current = getLocalGmailSmtpConfig();
+    localStorage.setItem(LOCAL_GMAIL_SMTP_KEY, JSON.stringify({ ...current, ...cfg }));
+  } catch {}
+}
 
 export interface SendEmailOtpParams {
   email: string;
@@ -15,9 +43,8 @@ export interface SendEmailOtpResult {
   error?: string;
   warning?: string;
   expiresAt?: number;
-  deliveryMethod?: 'nodemailer_gmail' | 'simulation';
+  deliveryMethod?: 'nodemailer_gmail';
   delivered?: boolean;
-  demoOtpCode?: string;
   maskedEmail?: string;
 }
 
@@ -95,7 +122,8 @@ function getEmailDocId(email: string): string {
 }
 
 /**
- * Sends a 6-digit verification code to the target Gmail address via backend Nodemailer
+ * Sends a 6-digit verification code to the target Gmail address via backend Nodemailer.
+ * NEVER returns or exposes the OTP code in the client response.
  */
 export async function sendEmailOtp(params: SendEmailOtpParams): Promise<SendEmailOtpResult> {
   const cleanEmail = normalizeEmail(params.email);
@@ -112,14 +140,47 @@ export async function sendEmailOtp(params: SendEmailOtpParams): Promise<SendEmai
   const now = Date.now();
   const expiresAt = now + 5 * 60 * 1000; // Strictly 5 minutes expiration
 
-  // Load custom Gmail App Password from store settings if available
-  let customGmailUser: string | undefined;
-  let customGmailAppPassword: string | undefined;
+  // Load custom Gmail App Password from local config, store settings, or Firestore platform_config
+  const localSmtp = getLocalGmailSmtpConfig();
+  let customGmailUser: string | undefined = localSmtp.gmailUser || undefined;
+  let customGmailAppPassword: string | undefined = localSmtp.gmailAppPassword || undefined;
+
   try {
     const settings = await getStoreSettings();
-    if (settings.gmailAppUser) customGmailUser = settings.gmailAppUser;
-    if (settings.gmailAppPassword) customGmailAppPassword = settings.gmailAppPassword;
+    if (settings.gmailAppUser && !customGmailUser) customGmailUser = settings.gmailAppUser;
+    if (settings.gmailAppPassword && !customGmailAppPassword) {
+      customGmailAppPassword = settings.gmailAppPassword;
+    }
   } catch {}
+
+  if (!customGmailAppPassword && params.phone) {
+    try {
+      const cleanShopPhone = normalizeShopPhoneNumber(params.phone);
+      if (cleanShopPhone) {
+        const shopSnap = await getDoc(doc(firestore, 'shops', cleanShopPhone));
+        if (shopSnap.exists()) {
+          const d = shopSnap.data();
+          if (d?.gmailAppUser && !customGmailUser) customGmailUser = String(d.gmailAppUser);
+          if (d?.gmailAppPassword && !customGmailAppPassword) {
+            customGmailAppPassword = String(d.gmailAppPassword);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  if (!customGmailAppPassword) {
+    try {
+      const globalSmtp = await getDoc(doc(firestore, 'platform_config', 'email_smtp'));
+      if (globalSmtp.exists()) {
+        const g = globalSmtp.data();
+        if (g?.gmailAppUser && !customGmailUser) customGmailUser = String(g.gmailAppUser);
+        if (g?.gmailAppPassword && !customGmailAppPassword) {
+          customGmailAppPassword = String(g.gmailAppPassword);
+        }
+      }
+    } catch {}
+  }
 
   // 1. Store OTP in Firestore with 5-minute lifespan
   const docId = getEmailDocId(cleanEmail);
@@ -160,36 +221,32 @@ export async function sendEmailOtp(params: SendEmailOtpParams): Promise<SendEmai
       }),
     });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.delivered) {
       return {
         success: false,
-        error: errData.error || 'تعذر إرسال كود التحقق عبر البريد الإلكتروني. المرجو المحاولة مجدداً.',
+        delivered: false,
+        error:
+          data.error ||
+          'تعذر إرسال كود التحقق إلى بريد Gmail لأن كلمة مرور تطبيق Gmail (App Password) غير مضبوطة بعد. يمكنك التفعيل أو الاسترجاع مجاناً وبشكل فوري عبر زر (التأكيد عبر حساب Google).',
       };
     }
-
-    const data = await response.json();
 
     return {
       success: true,
       expiresAt,
-      deliveryMethod: data.delivered ? 'nodemailer_gmail' : 'simulation',
-      delivered: Boolean(data.delivered),
-      demoOtpCode: data.otpCode,
-      warning: data.warning,
+      deliveryMethod: 'nodemailer_gmail',
+      delivered: true,
       maskedEmail: maskEmail(cleanEmail),
     };
   } catch (netErr: any) {
     console.error('Network error calling /api/send-email-otp:', netErr);
-    // If backend cannot be reached, fallback gracefully with the OTP in demo mode
     return {
-      success: true,
-      expiresAt,
-      deliveryMethod: 'simulation',
+      success: false,
       delivered: false,
-      demoOtpCode: otpCode,
-      warning: 'تعذر الاتصال بخادم البريد، تم تفعيل الرمز للاختبار.',
-      maskedEmail: maskEmail(cleanEmail),
+      error:
+        'تعذر الاتصال بخادم البريد حالياً. يمكنك استخدام زر (التأكيد الفوري والمجاني عبر حساب Google).',
     };
   }
 }
@@ -270,7 +327,8 @@ export async function verifyEmailOtp(params: VerifyEmailOtpParams): Promise<{
 }
 
 /**
- * Searches for an account by Phone or Email for Forgot Password recovery
+ * Searches for an existing registered account by Phone or Email for Forgot Password recovery.
+ * Rejects unregistered phone numbers or unregistered emails.
  */
 export async function lookupAccountEmailForPasswordReset(
   queryInput: string
@@ -287,17 +345,31 @@ export async function lookupAccountEmailForPasswordReset(
       return { found: false, error: 'صيغة البريد الإلكتروني غير صحيحة' };
     }
 
-    // Search shops collection where email == cleanEmail
+    // Search shops collection where email == cleanEmail or adminEmail == cleanEmail
     try {
-      const q = query(collection(firestore, 'shops'), where('email', '==', cleanEmail));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const docData = snap.docs[0].data();
+      const q1 = query(collection(firestore, 'shops'), where('email', '==', cleanEmail));
+      const snap1 = await getDocs(q1);
+      if (!snap1.empty) {
+        const docData = snap1.docs[0].data();
         return {
           found: true,
           email: cleanEmail,
           maskedEmail: maskEmail(cleanEmail),
-          shopPhone: snap.docs[0].id,
+          shopPhone: snap1.docs[0].id,
+          storeName: docData.storeName || 'المحل الذهبي',
+          userName: docData.adminName || 'المدير',
+        };
+      }
+
+      const q2 = query(collection(firestore, 'shops'), where('adminEmail', '==', cleanEmail));
+      const snap2 = await getDocs(q2);
+      if (!snap2.empty) {
+        const docData = snap2.docs[0].data();
+        return {
+          found: true,
+          email: cleanEmail,
+          maskedEmail: maskEmail(cleanEmail),
+          shopPhone: snap2.docs[0].id,
           storeName: docData.storeName || 'المحل الذهبي',
           userName: docData.adminName || 'المدير',
         };
@@ -309,24 +381,24 @@ export async function lookupAccountEmailForPasswordReset(
     // Check local store settings if matches
     try {
       const settings = await getStoreSettings();
-      if (normalizeEmail(settings.adminEmail) === cleanEmail) {
+      if (
+        normalizeEmail(settings.adminEmail) === cleanEmail &&
+        (settings.phone || settings.shopId)
+      ) {
         return {
           found: true,
           email: cleanEmail,
           maskedEmail: maskEmail(cleanEmail),
-          shopPhone: settings.phone || settings.shopId,
+          shopPhone: normalizeShopPhoneNumber(settings.phone || settings.shopId),
           storeName: settings.storeName || 'المحل الذهبي',
           userName: settings.adminName || 'المدير',
         };
       }
     } catch {}
 
-    // Allow user to proceed directly with their Gmail
     return {
-      found: true,
-      email: cleanEmail,
-      maskedEmail: maskEmail(cleanEmail),
-      storeName: 'المحل الذهبي',
+      found: false,
+      error: 'هذا البريد الإلكتروني غير مرتبط بأي حساب محل مسجل في النظام! تأكد من البريد أو أدخل رقم هاتف المحل.',
     };
   }
 
@@ -337,10 +409,17 @@ export async function lookupAccountEmailForPasswordReset(
   }
 
   try {
+    let shopExists = false;
+    let foundStoreName = 'المحل الذهبي';
+    let foundUserName = 'المدير';
+
     // Check doc shops/{cleanPhone}
     const shopSnap = await getDoc(doc(firestore, 'shops', cleanPhone));
     if (shopSnap.exists()) {
+      shopExists = true;
       const data = shopSnap.data();
+      foundStoreName = data?.storeName || foundStoreName;
+      foundUserName = data?.adminName || foundUserName;
       const shopEmail = data?.email || data?.adminEmail;
       if (shopEmail && isValidEmail(shopEmail)) {
         return {
@@ -348,8 +427,8 @@ export async function lookupAccountEmailForPasswordReset(
           email: normalizeEmail(shopEmail),
           maskedEmail: maskEmail(shopEmail),
           shopPhone: cleanPhone,
-          storeName: data.storeName || 'المحل الذهبي',
-          userName: data.adminName || 'المدير',
+          storeName: foundStoreName,
+          userName: foundUserName,
         };
       }
     }
@@ -359,7 +438,10 @@ export async function lookupAccountEmailForPasswordReset(
       doc(firestore, 'shops', cleanPhone, 'settings', 'store_settings')
     );
     if (settingsSnap.exists()) {
+      shopExists = true;
       const sVal = settingsSnap.data()?.value;
+      foundStoreName = sVal?.storeName || foundStoreName;
+      foundUserName = sVal?.adminName || foundUserName;
       const subEmail = sVal?.adminEmail || sVal?.email;
       if (subEmail && isValidEmail(subEmail)) {
         return {
@@ -367,42 +449,121 @@ export async function lookupAccountEmailForPasswordReset(
           email: normalizeEmail(subEmail),
           maskedEmail: maskEmail(subEmail),
           shopPhone: cleanPhone,
-          storeName: sVal.storeName || 'المحل الذهبي',
-          userName: sVal.adminName || 'المدير',
+          storeName: foundStoreName,
+          userName: foundUserName,
         };
       }
     }
 
     // Check local store settings if phone matches
     const settings = await getStoreSettings();
-    if (
-      normalizeShopPhoneNumber(settings.phone) === cleanPhone &&
-      settings.adminEmail &&
-      isValidEmail(settings.adminEmail)
-    ) {
+    if (normalizeShopPhoneNumber(settings.phone) === cleanPhone && settings.pinCode) {
+      shopExists = true;
+      if (settings.adminEmail && isValidEmail(settings.adminEmail)) {
+        return {
+          found: true,
+          email: normalizeEmail(settings.adminEmail),
+          maskedEmail: maskEmail(settings.adminEmail),
+          shopPhone: cleanPhone,
+          storeName: settings.storeName || foundStoreName,
+          userName: settings.adminName || foundUserName,
+        };
+      }
+    }
+
+    if (!shopExists) {
       return {
-        found: true,
-        email: normalizeEmail(settings.adminEmail),
-        maskedEmail: maskEmail(settings.adminEmail),
-        shopPhone: cleanPhone,
-        storeName: settings.storeName || 'المحل الذهبي',
-        userName: settings.adminName || 'المدير',
+        found: false,
+        error: 'رقم الهاتف هذا غير مسجل في النظام! تأكد من الرقم أو أنشئ حساباً جديداً.',
       };
     }
 
     return {
       found: false,
       shopPhone: cleanPhone,
+      storeName: foundStoreName,
+      userName: foundUserName,
       error:
-        'هذا الحساب لم يسجل بريد Gmail بعد، أو يمكنك إدخال بريدك Gmail مباشرة لاستقبال الرمز.',
+        'هذا الحساب مسجل بدون بريد Gmail، أو لم يتم ربط بريد Gmail به بعد.',
     };
   } catch (err: any) {
     console.error('Error looking up account email:', err);
     return {
       found: false,
-      error: 'تعذر العثور على الحساب. المرجو التأكد من رقم الهاتف أو إدخال بريدك Gmail.',
+      error: 'تعذر العثور على الحساب. المرجو التأكد من رقم الهاتف أو البريد الإلكتروني.',
     };
   }
+}
+
+/**
+ * Updates the shop's PIN/password in Firestore and local IndexedDB
+ */
+export async function updateShopPasswordInDb(
+  shopPhone: string,
+  newPassword: string,
+  verifiedEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  const cleanPass = newPassword.trim();
+  if (cleanPass.length < 4) {
+    return { success: false, error: 'كلمة المرور الجديدة يجب أن تكون 4 أرقام على الأقل.' };
+  }
+
+  const cleanPhone = normalizeShopPhoneNumber(shopPhone);
+  if (!cleanPhone) {
+    return { success: false, error: 'رقم حساب المحل غير محدد.' };
+  }
+
+  try {
+    await setDoc(
+      doc(firestore, 'shops', cleanPhone),
+      {
+        pinCode: cleanPass,
+        updated_at: new Date().toISOString(),
+        ...(verifiedEmail
+          ? {
+              email: normalizeEmail(verifiedEmail),
+              adminEmail: normalizeEmail(verifiedEmail),
+              emailVerified: true,
+            }
+          : {}),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn('Update shop doc notice:', e);
+  }
+
+  try {
+    const setRef = doc(firestore, 'shops', cleanPhone, 'settings', 'store_settings');
+    const setSnap = await getDoc(setRef);
+    const existingVal = setSnap.exists() ? setSnap.data()?.value || {} : {};
+    await setDoc(
+      setRef,
+      {
+        value: {
+          ...existingVal,
+          pinCode: cleanPass,
+          ...(verifiedEmail ? { adminEmail: normalizeEmail(verifiedEmail), emailVerified: true } : {}),
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch {}
+
+  try {
+    const current = await getStoreSettings();
+    const localPhone = normalizeShopPhoneNumber(current.phone || current.shopId);
+    if (!localPhone || localPhone === cleanPhone) {
+      await saveStoreSettings({
+        ...current,
+        pinCode: cleanPass,
+        ...(verifiedEmail ? { adminEmail: normalizeEmail(verifiedEmail), emailVerified: true } : {}),
+      });
+    }
+  } catch {}
+
+  return { success: true };
 }
 
 /**
@@ -421,49 +582,19 @@ export async function resetPasswordWithEmailOtp(
     return { success: false, error: verifyRes.error };
   }
 
-  const cleanPass = params.newPassword.trim();
-  if (cleanPass.length < 4) {
-    return { success: false, error: 'كلمة المرور الجديدة يجب أن تكون 4 أرقام أو حروف على الأقل' };
+  const lookup = await lookupAccountEmailForPasswordReset(params.shopPhone || params.email);
+  const resolvedPhone =
+    (params.shopPhone ? normalizeShopPhoneNumber(params.shopPhone) : '') ||
+    lookup.shopPhone ||
+    '';
+
+  if (!resolvedPhone) {
+    return {
+      success: false,
+      error: 'تعذر تحديد رقم حساب المحل المرتبط بهذا البريد.',
+    };
   }
 
-  // Update in Firestore
-  const shopPhone = params.shopPhone ? normalizeShopPhoneNumber(params.shopPhone) : '';
-  let updatedAny = false;
-
-  if (shopPhone) {
-    try {
-      await updateDoc(doc(firestore, 'shops', shopPhone), {
-        pinCode: cleanPass,
-        updated_at: new Date().toISOString(),
-      });
-      updatedAny = true;
-    } catch {}
-
-    try {
-      await setDoc(
-        doc(firestore, 'shops', shopPhone, 'settings', 'store_settings'),
-        {
-          value: {
-            pinCode: cleanPass,
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-      updatedAny = true;
-    } catch {}
-  }
-
-  // Also update local settings if phone matches or active
-  try {
-    const current = await getStoreSettings();
-    if (!shopPhone || normalizeShopPhoneNumber(current.phone) === shopPhone) {
-      await getStoreSettings().then((s) => ({
-        ...s,
-        pinCode: cleanPass,
-      }));
-    }
-  } catch {}
-
-  return { success: true };
+  return await updateShopPasswordInDb(resolvedPhone, params.newPassword, params.email);
 }
+

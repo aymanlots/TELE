@@ -189,25 +189,186 @@ export async function syncShopMembersPhoneIndex(
 
   for (const m of members) {
     const memberPhone = normalizeShopPhoneNumber(m.phone);
-    if (!memberPhone || memberPhone.length < 9) continue;
+    const cleanPin = (m.pin_code || '').trim();
+
+    if (memberPhone && memberPhone.length >= 9) {
+      try {
+        await setDoc(
+          doc(firestore, 'user_phone_index', memberPhone),
+          {
+            phone: memberPhone,
+            shopPhone: cleanShopPhone,
+            memberId: m.id,
+            fullName: m.full_name,
+            role: m.role,
+            active: m.active,
+            pinCode: cleanPin,
+            storeName: storeName || 'المحل الذهبي',
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+
+    if (cleanPin && cleanPin.length >= 4) {
+      try {
+        await setDoc(
+          doc(firestore, 'worker_code_index', `${cleanShopPhone}_${m.id}`),
+          {
+            pinCode: cleanPin,
+            shopPhone: cleanShopPhone,
+            memberId: m.id,
+            fullName: m.full_name,
+            phone: memberPhone || '',
+            role: m.role || 'employee',
+            active: m.active !== false,
+            storeName: storeName || 'المحل الذهبي',
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Finds an active Worker/Member account strictly by the secret code given by the Admin.
+ * Links the worker directly to the Admin's shop.
+ */
+export async function findWorkerAccountByAdminCode(
+  rawCode: string,
+  preferredShopPhone?: string
+): Promise<{
+  shopPhone: string;
+  storeName: string;
+  memberId: string;
+  fullName: string;
+  role: UserRole;
+  phone?: string;
+} | null> {
+  const cleanCode = (rawCode || '').trim();
+  if (!cleanCode || cleanCode.length < 4) return null;
+
+  const cleanPrefPhone = normalizeShopPhoneNumber(preferredShopPhone);
+
+  // 1. Check preferred/linked Admin shop in Firestore first
+  if (cleanPrefPhone) {
     try {
-      await setDoc(
-        doc(firestore, 'user_phone_index', memberPhone),
-        {
-          phone: memberPhone,
-          shopPhone: cleanShopPhone,
-          memberId: m.id,
-          fullName: m.full_name,
-          role: m.role,
-          active: m.active,
-          pinCode: m.pin_code || '',
-          storeName: storeName || 'المحل الذهبي',
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
+      const shopSnap = await getDoc(doc(firestore, 'shops', cleanPrefPhone));
+      if (shopSnap.exists()) {
+        const sData = shopSnap.data();
+        const members: ShopMember[] = Array.isArray(sData?.shopMembers) ? sData.shopMembers : [];
+        const matched = members.find(
+          (m) => m.active !== false && m.pin_code && String(m.pin_code).trim() === cleanCode
+        );
+        if (matched) {
+          return {
+            shopPhone: cleanPrefPhone,
+            storeName: sData?.storeName || 'المحل الذهبي',
+            memberId: matched.id,
+            fullName: matched.full_name || 'العامل',
+            role: matched.role || 'employee',
+            phone: matched.phone,
+          };
+        }
+      }
+
+      const setSnap = await getDoc(
+        doc(firestore, 'shops', cleanPrefPhone, 'settings', 'store_settings')
       );
+      if (setSnap.exists()) {
+        const sVal = setSnap.data()?.value;
+        const members: ShopMember[] = Array.isArray(sVal?.shopMembers) ? sVal.shopMembers : [];
+        const matched = members.find(
+          (m) => m.active !== false && m.pin_code && String(m.pin_code).trim() === cleanCode
+        );
+        if (matched) {
+          return {
+            shopPhone: cleanPrefPhone,
+            storeName: sVal?.storeName || 'المحل الذهبي',
+            memberId: matched.id,
+            fullName: matched.full_name || 'العامل',
+            role: matched.role || 'employee',
+            phone: matched.phone,
+          };
+        }
+      }
     } catch {}
   }
+
+  // 2. Check local IndexedDB storeSettings
+  try {
+    const localSettings = await getStoreSettings();
+    const localShopPhone = normalizeShopPhoneNumber(localSettings.phone || localSettings.shopId);
+    const localMembers: ShopMember[] = Array.isArray(localSettings.shopMembers)
+      ? localSettings.shopMembers
+      : [];
+    const matchedLocal = localMembers.find(
+      (m) => m.active !== false && m.pin_code && String(m.pin_code).trim() === cleanCode
+    );
+    if (matchedLocal && localShopPhone) {
+      return {
+        shopPhone: localShopPhone,
+        storeName: localSettings.storeName || 'المحل الذهبي',
+        memberId: matchedLocal.id,
+        fullName: matchedLocal.full_name || 'العامل',
+        role: matchedLocal.role || 'employee',
+        phone: matchedLocal.phone,
+      };
+    }
+  } catch {}
+
+  // 3. Scan Firestore `shops` collection for any shop where the Admin created this worker code
+  try {
+    const shopsSnap = await getDocs(collection(firestore, 'shops'));
+    for (const shopDoc of shopsSnap.docs) {
+      const sData = shopDoc.data();
+      const sPhone = normalizeShopPhoneNumber(shopDoc.id);
+      if (!sPhone) continue;
+
+      const membersOnDoc: ShopMember[] = Array.isArray(sData?.shopMembers)
+        ? sData.shopMembers
+        : [];
+      const foundInDoc = membersOnDoc.find(
+        (m) => m.active !== false && m.pin_code && String(m.pin_code).trim() === cleanCode
+      );
+      if (foundInDoc) {
+        return {
+          shopPhone: sPhone,
+          storeName: sData?.storeName || 'المحل الذهبي',
+          memberId: foundInDoc.id,
+          fullName: foundInDoc.full_name || 'العامل',
+          role: foundInDoc.role || 'employee',
+          phone: foundInDoc.phone,
+        };
+      }
+
+      try {
+        const setSnap = await getDoc(doc(firestore, 'shops', sPhone, 'settings', 'store_settings'));
+        if (setSnap.exists()) {
+          const sVal = setSnap.data()?.value;
+          const subMembers: ShopMember[] = Array.isArray(sVal?.shopMembers) ? sVal.shopMembers : [];
+          const foundSub = subMembers.find(
+            (m) => m.active !== false && m.pin_code && String(m.pin_code).trim() === cleanCode
+          );
+          if (foundSub) {
+            return {
+              shopPhone: sPhone,
+              storeName: sVal?.storeName || sData?.storeName || 'المحل الذهبي',
+              memberId: foundSub.id,
+              fullName: foundSub.full_name || 'العامل',
+              role: foundSub.role || 'employee',
+              phone: foundSub.phone,
+            };
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return null;
 }
 
 /**
@@ -703,9 +864,7 @@ export async function createAndSendPasswordResetOtp(rawPhone: string): Promise<{
   expiresAt?: number;
   retryAfterSeconds?: number;
   remainingRequestsInWindow?: number;
-  deliveryMethod?: 'meta_cloud_api' | 'custom_gateway' | 'simulation';
-  apiWarning?: string;
-  demoOtpCode?: string;
+  deliveryMethod?: 'meta_cloud_api' | 'custom_gateway';
 }> {
   const cleanPhone = normalizeShopPhoneNumber(rawPhone);
   if (!cleanPhone || cleanPhone.length < 9) {
@@ -763,6 +922,16 @@ export async function createAndSendPasswordResetOtp(rawPhone: string): Promise<{
     shopPhone: resolvedUser.shopPhone,
   });
 
+  if (!dispatchResult.delivered) {
+    return {
+      success: false,
+      error:
+        dispatchResult.apiError === 'META_CREDENTIALS_MISSING'
+          ? 'لم يتم ربط مفاتيح Meta WhatsApp Cloud API بعد لإرسال رسائل واتساب تلقائياً. يمكنك استرجاع كلمة السر مجاناً وبشكل فوري عبر تبويب (عبر حساب Gmail المسجل) بالأعلى.'
+          : `تعذر إرسال رسالة واتساب عبر Meta API (${dispatchResult.apiError || 'خطأ في الاتصال'}). استعمل تبويب (عبر حساب Gmail المسجل) للاسترجاع المجاني.`,
+    };
+  }
+
   // 5. Store OTP record in Firestore with 5-minute expiration & updated rate limit counters
   const record: PasswordResetOtpRecord = {
     phone: cleanPhone,
@@ -796,10 +965,7 @@ export async function createAndSendPasswordResetOtp(rawPhone: string): Promise<{
     expiresAt,
     retryAfterSeconds: Math.ceil(OTP_COOLDOWN_MS / 1000),
     remainingRequestsInWindow: rateCheck.remainingInWindow,
-    deliveryMethod: dispatchResult.method,
-    apiWarning: dispatchResult.delivered ? undefined : dispatchResult.apiError,
-    // Only returned when Meta Cloud API credentials are not yet configured so user can test or send via WhatsApp
-    demoOtpCode: dispatchResult.delivered ? undefined : otpCode,
+    deliveryMethod: dispatchResult.method === 'custom_gateway' ? 'custom_gateway' : 'meta_cloud_api',
   };
 }
 

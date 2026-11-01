@@ -19,6 +19,8 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from 'firebase/auth';
 import rawConfig from '../firebase-applet-config.json';
 
@@ -239,6 +241,58 @@ export async function verifyPhoneOtp(
 ): Promise<User> {
   const res = await confirmationResult.confirm(code);
   return res.user;
+}
+
+/**
+ * 100% Free & Cryptographically Verified Gmail Authentication via Official Google Popup
+ * Requires no domain purchase and no paid API.
+ */
+export async function verifyGmailWithGooglePopup(loginHintEmail?: string): Promise<{
+  success: boolean;
+  email?: string;
+  displayName?: string;
+  uid?: string;
+  error?: string;
+}> {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account',
+      ...(loginHintEmail && loginHintEmail.includes('@') ? { login_hint: loginHintEmail.trim() } : {}),
+    });
+    const result = await signInWithPopup(auth, provider);
+    const email = result.user?.email?.trim().toLowerCase();
+    if (!email) {
+      return {
+        success: false,
+        error: 'لم يتم العثور على بريد إلكتروني صالح في حساب Google المختار.',
+      };
+    }
+    return {
+      success: true,
+      email,
+      displayName: result.user.displayName || undefined,
+      uid: result.user.uid,
+    };
+  } catch (err: any) {
+    const code = err?.code || '';
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      return {
+        success: false,
+        error: 'تم إغلاق نافذة تسجيل الدخول بـ Google قبل إتمام التأكيد.',
+      };
+    }
+    if (code === 'auth/popup-blocked') {
+      return {
+        success: false,
+        error: 'قام المتصفح بحظر النافذة المنبثقة (Popup). المرجو السماح بالنوافذ المنبثقة وإعادة المحاولة.',
+      };
+    }
+    return {
+      success: false,
+      error: err?.message || 'تعذر التحقق عبر Google حالياً.',
+    };
+  }
 }
 
 // Operation types for Firestore security error diagnosis

@@ -225,7 +225,7 @@ async function startServer() {
             html: htmlContent,
           });
 
-          console.log(`[Nodemailer] Successfully sent OTP ${cleanOtp} to ${cleanEmail}. MessageId: ${info.messageId}`);
+          console.log(`[Nodemailer] Successfully sent OTP to ${cleanEmail}. MessageId: ${info.messageId}`);
           res.json({
             success: true,
             delivered: true,
@@ -236,28 +236,22 @@ async function startServer() {
           return;
         } catch (sendError: any) {
           console.error('[Nodemailer Error] Failed to send email:', sendError);
-          // Return clear diagnostics and provide fallback so user isn't stuck
-          res.status(200).json({
-            success: true,
+          res.status(400).json({
+            success: false,
             delivered: false,
-            simulated: true,
-            warning: `فشل الإرسال عبر Gmail (${sendError?.message || 'Invalid Credentials'}). تم تفعيل الرمز التجريبي لتسهيل الدخول.`,
-            otpCode: cleanOtp,
-            to: cleanEmail,
+            error: `تعذر إرسال الرسالة عبر Gmail (${sendError?.message || 'بيانات Gmail App Password غير صحيحة'}). يمكنك تأكيد حسابك مجاناً وبشكل فوري عبر زر (تأكيد عبر حساب Google).`,
           });
           return;
         }
       }
 
-      // If no App Password is set yet, log to console and return simulated response
-      console.log(`[Nodemailer Simulation] To: ${cleanEmail} | OTP: ${cleanOtp} | Type: ${type}`);
-      res.json({
-        success: true,
+      // If no App Password is set yet, reject securely without exposing OTP code
+      res.status(400).json({
+        success: false,
         delivered: false,
-        simulated: true,
-        message: 'GMAIL_APP_PASSWORD غير مضبوط في المتغيرات أو الإعدادات. تم تسجيل الرمز للاختبار.',
-        otpCode: cleanOtp,
-        to: cleanEmail,
+        code: 'SMTP_NOT_CONFIGURED',
+        error:
+          'لم يتم ضبط كلمة مرور تطبيق Gmail (Gmail App Password) بعد لإرسال الرسائل النصية. استعمل زر (التأكيد المجاني الفوري عبر حساب Google) أو أضف Gmail App Password المجاني.',
       });
     } catch (err: any) {
       console.error('[API send-email-otp error]:', err);

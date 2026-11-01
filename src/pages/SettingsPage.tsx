@@ -1371,7 +1371,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                 </div>
               </h2>
 
-              {/* Add Worker / Admin with WhatsApp Phone & Personal Password/PIN */}
+              {/* Add Worker / Admin with Personal Secret Code (Linked to Admin's Shop) */}
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
@@ -1379,15 +1379,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                     error(language === 'ar' ? 'المرجو إدخال اسم العامل أو الأدمين.' : 'Veuillez saisir le nom.');
                     return;
                   }
-                  if (!newMemberPhone.trim()) {
-                    error(language === 'ar' ? 'المرجو إدخال رقم الهاتف (واتساب).' : 'Veuillez saisir le numéro WhatsApp.');
-                    return;
-                  }
                   if (newMemberPin.trim().length < 4) {
                     error(
                       language === 'ar'
-                        ? 'المرجو إدخال كلمة مرور أو رمز سري (4 أرقام/حروف على الأقل).'
-                        : 'Le mot de passe ou PIN doit contenir au moins 4 caractères.'
+                        ? 'المرجو إدخال الكود السري الخاص بالعامل (4 أرقام على الأقل).'
+                        : 'Le code secret doit contenir au moins 4 chiffres.'
                     );
                     return;
                   }
@@ -1421,8 +1417,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   setNewMemberPin('');
                   success(
                     language === 'ar'
-                      ? `تمت إضافة ${newMember.full_name} (${getRoleLabel(newMember.role, 'ar')}) بنجاح!`
-                      : `Membre ${newMember.full_name} ajouté avec succès !`
+                      ? `تم إنشاء كود العامل (${newMember.pin_code}) لـ ${newMember.full_name} وربطه بحسابك بنجاح!`
+                      : `Compte ${newMember.full_name} (Code: ${newMember.pin_code}) ajouté avec succès !`
                   );
                 }}
                 className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5"
@@ -1431,8 +1427,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>
                     {language === 'ar'
-                      ? 'إضافة حساب عامل (أو أدمين) برقم واتساب وكلمة مرور خاصة'
-                      : 'Ajouter un compte Employé ou Admin (WhatsApp + Mot de passe)'}
+                      ? 'إنشاء كود خاص بالعامل (يدخل به العامل عبر زر "دخول العامل" في شاشة البداية)'
+                      : 'Créer un code secret pour un Employé (accès via le bouton Employé)'}
                   </span>
                 </div>
 
@@ -1442,15 +1438,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                     required
                     value={newMemberName}
                     onChange={(e) => setNewMemberName(e.target.value)}
-                    placeholder={language === 'ar' ? 'الاسم الكامل (مثلاً: أمين — العامل)' : 'Nom complet'}
+                    placeholder={language === 'ar' ? 'اسم العامل (مثلاً: أمين — العامل)' : 'Nom complet'}
                     className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-neutral-100"
                   />
                   <input
                     type="tel"
-                    required
                     value={newMemberPhone}
                     onChange={(e) => setNewMemberPhone(e.target.value)}
-                    placeholder={language === 'ar' ? 'رقم الهاتف واتساب (06...)' : 'Numéro WhatsApp (06...)'}
+                    placeholder={language === 'ar' ? 'رقم واتساب العامل (اختياري 06...)' : 'Numéro WhatsApp (Optionnel)'}
                     dir="ltr"
                     className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-amber-300 font-mono"
                   />
@@ -1475,12 +1470,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   </select>
 
                   <input
-                    type="password"
+                    type="text"
+                    inputMode="numeric"
                     required
                     value={newMemberPin}
                     onChange={(e) => setNewMemberPin(e.target.value)}
-                    placeholder={language === 'ar' ? 'كلمة المرور / الرمز السري' : 'Mot de passe / Code secret'}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-2 text-center font-mono tracking-widest text-amber-300"
+                    placeholder={language === 'ar' ? 'الكود الذي ستعطيه للعامل (مثال: 5566)' : 'Code secret à donner à l’employé'}
+                    className="w-full bg-neutral-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-center font-mono font-bold tracking-widest text-emerald-300"
                   />
                 </div>
 
@@ -1488,7 +1484,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                   type="submit"
                   className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold transition cursor-pointer"
                 >
-                  {language === 'ar' ? '+ إضافة الحساب وتفعيله' : '+ Ajouter ce compte'}
+                  {language === 'ar' ? '+ إنشاء كود العامل وربطه بالمحل' : '+ Créer le code employé'}
                 </button>
               </form>
 
@@ -1497,8 +1493,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                 <div className="space-y-2">
                   <div className="text-[11px] font-bold text-neutral-300">
                     {language === 'ar'
-                      ? `الحسابات المسجلة في المحل (${localMembers.length}) :`
-                      : `Comptes enregistrés (${localMembers.length}) :`}
+                      ? `حسابات وأكواد العمال المسجلة (${localMembers.length}) :`
+                      : `Comptes et codes employés enregistrés (${localMembers.length}) :`}
                   </div>
                   {localMembers.map((m) => (
                     <div
@@ -1512,8 +1508,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                             {getRoleLabel(m.role, language)}
                           </span>
                         </div>
-                        <div className="text-[10px] text-neutral-400 font-mono mt-0.5">
-                          {m.phone ? `WhatsApp: ${m.phone} • ` : ''}PIN: •••••• • {m.active ? (language === 'ar' ? 'نشط' : 'Actif') : (language === 'ar' ? 'معطل' : 'Inactif')}
+                        <div className="text-[11px] text-neutral-300 font-mono mt-1 flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 font-black">
+                            {language === 'ar' ? `كود العامل: ${m.pin_code}` : `Code: ${m.pin_code}`}
+                          </span>
+                          {m.phone ? <span>WhatsApp: {m.phone}</span> : null}
+                          <span className="text-[10px] text-neutral-400">
+                            • {m.active ? (language === 'ar' ? 'نشط' : 'Actif') : (language === 'ar' ? 'معطل' : 'Inactif')}
+                          </span>
                         </div>
                       </div>
 
@@ -1527,6 +1529,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                             setLocalMembers(next);
                             const current = await getStoreSettings();
                             await saveStoreSettings({ ...current, shopMembers: next });
+                            const targetShopPhone = normalizeShopPhoneNumber(activePhone || shopId || phone);
+                            if (targetShopPhone) {
+                              try {
+                                await setDoc(
+                                  doc(firestore, 'shops', targetShopPhone),
+                                  { shopMembers: next, updated_at: new Date().toISOString() },
+                                  { merge: true }
+                                );
+                                await syncShopMembersPhoneIndex(targetShopPhone, storeName.trim(), next);
+                              } catch {}
+                            }
                           }}
                           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
                             m.active
@@ -1549,6 +1562,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSettingsSaved }) =
                             setLocalMembers(next);
                             const current = await getStoreSettings();
                             await saveStoreSettings({ ...current, shopMembers: next });
+                            const targetShopPhone = normalizeShopPhoneNumber(activePhone || shopId || phone);
+                            if (targetShopPhone) {
+                              try {
+                                await setDoc(
+                                  doc(firestore, 'shops', targetShopPhone),
+                                  { shopMembers: next, updated_at: new Date().toISOString() },
+                                  { merge: true }
+                                );
+                                await syncShopMembersPhoneIndex(targetShopPhone, storeName.trim(), next);
+                              } catch {}
+                            }
                             success(language === 'ar' ? 'تم حذف المستخدم.' : 'Membre supprimé.');
                           }}
                           className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition cursor-pointer"

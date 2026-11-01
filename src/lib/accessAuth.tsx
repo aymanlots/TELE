@@ -30,6 +30,7 @@ import {
   createAndSendPasswordResetOtp,
   verifyOtpAndResetUserPassword,
   findUserAccountByWhatsAppPhone,
+  findWorkerAccountByAdminCode,
   syncShopMembersPhoneIndex,
 } from './whatsappCloudApi';
 import {
@@ -90,6 +91,10 @@ interface AccessAuthContextType {
     email?: string,
     emailVerified?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
+  loginAsWorkerWithCode: (
+    workerCode: string,
+    preferredShopPhone?: string
+  ) => Promise<{ success: boolean; error?: string; workerName?: string; storeName?: string }>;
   logout: () => void;
   lock: () => void;
   autoLockMinutes: number;
@@ -118,9 +123,7 @@ interface AccessAuthContextType {
     expiresAt?: number;
     retryAfterSeconds?: number;
     remainingRequestsInWindow?: number;
-    deliveryMethod?: 'meta_cloud_api' | 'custom_gateway' | 'simulation';
-    apiWarning?: string;
-    demoOtpCode?: string;
+    deliveryMethod?: 'meta_cloud_api' | 'custom_gateway';
   }>;
   sendEmailRecoveryCode: (phoneOrEmail: string) => Promise<
     SendEmailOtpResult & { account?: AccountEmailLookupResult }
@@ -238,7 +241,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [autoLockMinutes, setAutoLockMinutesState] = useState<number>(DEFAULT_AUTO_LOCK_MINUTES);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Phone + Secret PIN Authentication: Link & protect account across any device
+  // Phone + Secret PIN Authentication: Strictly requires registered account on 'login'
   const loginWithPhone = useCallback(
     async (
       rawPhone: string,
@@ -263,7 +266,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const cleanEmail = email ? normalizeEmail(email) : '';
       if (mode === 'register') {
-        if (!cleanEmail || !isValidEmail(cleanEmail)) {
+        if (!cleanEmail || !isValidEmail(cleanEmail) || !emailVerified) {
           return {
             success: false,
             error: 'المرجو إدخال بريد Gmail صحيح وتأكيده لإكمال التسجيل أول مرة.',
@@ -342,29 +345,50 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         // Verify PIN when account already has a configured PIN
+        const hasLocalRegisteredAccount =
+          prevShopPhone === effectiveShopPhone &&
+          Boolean(currentSettings.pinCode && String(currentSettings.pinCode).trim().length >= 4);
+
         const effectiveStoredPin =
           remotePinCode ||
-          (prevShopPhone === effectiveShopPhone && currentSettings.pinCode
-            ? String(currentSettings.pinCode).trim()
-            : '');
+          (hasLocalRegisteredAccount ? String(currentSettings.pinCode).trim() : '');
+
+        // STRICT GUARD FOR LOGIN MODE: Reject immediately if phone number is NOT registered!
+        if (mode === 'login') {
+          if (!shopExistsInCloud && !hasLocalRegisteredAccount) {
+            return {
+              success: false,
+              error:
+                'هذا الرقم غير مسجل في النظام! تأكد من رقم الهاتف الصحيح أو اضغط على "إنشاء حساب جديد" لتسجيل محلك أول مرة.',
+            };
+          }
+          if (!effectiveStoredPin && remoteMembers.length === 0) {
+            return {
+              success: false,
+              error:
+                'هذا الحساب غير مكتمل التسجيل. المرجو الضغط على "إنشاء حساب جديد" لتفعيل حسابك.',
+            };
+          }
+        }
+
+        // STRICT GUARD FOR REGISTER MODE: Prevent overwriting an already registered shop!
+        if (mode === 'register' && shopExistsInCloud && effectiveStoredPin) {
+          return {
+            success: false,
+            error:
+              'هذا الرقم مسجل مسبقاً في النظام! المرجو اختيار "تسجيل الدخول" وإدخال الكود السري الخاص بك، أو "نسيت كلمة السر" لاسترجاعه.',
+          };
+        }
 
         let matchedRole: UserRole = 'owner';
         let matchedUserName = currentSettings.adminName || 'المدير';
         let matchedUserId = 'owner';
 
-        if (mode === 'register' && shopExistsInCloud && effectiveStoredPin && effectiveStoredPin !== cleanPin) {
-          return {
-            success: false,
-            error:
-              'هذا الرقم مسجل مسبقاً بكود سري آخر! إذا كان حسابك، اختر "تسجيل الدخول" وأدخل الكود السري الصحيح.',
-          };
-        }
-
-        if (effectiveStoredPin) {
-          // If the user logged in using a member's personal WhatsApp number, check that member first
+        if (mode === 'login') {
+          // 1. Check if logged in with a registered member's phone + member's PIN
           const directPhoneMember = remoteMembers.find(
             (m) =>
-              m.active &&
+              m.active !== false &&
               normalizeShopPhoneNumber(m.phone) === cleanPhone &&
               m.pin_code &&
               String(m.pin_code).trim() === cleanPin
@@ -374,24 +398,18 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             matchedRole = directPhoneMember.role || 'employee';
             matchedUserName = directPhoneMember.full_name || 'العامل';
             matchedUserId = directPhoneMember.id || 'employee';
-          } else if (cleanPhone === effectiveShopPhone && cleanPin === effectiveStoredPin) {
+          } else if (
+            cleanPhone === effectiveShopPhone &&
+            effectiveStoredPin &&
+            cleanPin === effectiveStoredPin
+          ) {
             matchedRole = 'owner';
           } else {
-            // Check if PIN belongs to any active employee/member of this shop
-            const matchedMember = remoteMembers.find(
-              (m) => m.active && m.pin_code && String(m.pin_code).trim() === cleanPin
-            );
-            if (matchedMember) {
-              matchedRole = matchedMember.role || 'employee';
-              matchedUserName = matchedMember.full_name || 'العامل';
-              matchedUserId = matchedMember.id || 'employee';
-            } else {
-              return {
-                success: false,
-                error:
-                  'الكود السري (PIN) غير صحيح لهذا الحساب. إذا نسيت كلمة السر اضغط على "نسيت كلمة السر؟".',
-              };
-            }
+            return {
+              success: false,
+              error:
+                'الكود السري (PIN) غير صحيح لهذا الرقم! تأكد من الكود أو اضغط على "نسيت كلمة السر؟" لاسترجاعه.',
+            };
           }
         }
 
@@ -498,6 +516,77 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     [setUserRole]
   );
 
+  const loginAsWorkerWithCode = useCallback(
+    async (
+      workerCode: string,
+      preferredShopPhone?: string
+    ): Promise<{ success: boolean; error?: string; workerName?: string; storeName?: string }> => {
+      try {
+        const cleanCode = String(workerCode || '').trim();
+        if (!cleanCode || cleanCode.length < 4) {
+          return {
+            success: false,
+            error: 'المرجو إدخال الكود السري الصحيح الذي أعطاه لك الأدمين (4 أرقام على الأقل).',
+          };
+        }
+
+        const preferred = preferredShopPhone || activePhone || getActiveShopPhoneNumber();
+        const found = await findWorkerAccountByAdminCode(cleanCode, preferred);
+
+        if (!found || !found.shopPhone || !found.memberId) {
+          return {
+            success: false,
+            error:
+              'كود العامل غير صحيح أو غير مسجل عند الأدمين. تأكد من الكود الذي أعطاه لك الأدمين.',
+          };
+        }
+
+        const effectiveShopPhone = found.shopPhone;
+
+        // Bind session to the Admin's shop phone so all data belongs to the Admin's shop
+        setActiveShopPhoneNumber(effectiveShopPhone);
+        setCurrentShopId(effectiveShopPhone);
+        setActivePhoneState(effectiveShopPhone);
+
+        // Pull shop data from Firestore so worker sees current shop inventory & orders
+        try {
+          const { pullShopDataFromFirestore } = await import('./firebaseSync');
+          await pullShopDataFromFirestore(effectiveShopPhone);
+        } catch {}
+
+        const latestSettings = await getStoreSettings();
+        const finalStoreName = found.storeName || latestSettings.storeName || 'المحل الذهبي';
+
+        const now = Date.now();
+        localStorage.setItem(STORAGE_KEYS.VERIFIED_AT, String(now));
+        localStorage.setItem(STORAGE_KEYS.SESSION_UNLOCKED, 'true');
+        localStorage.setItem(STORAGE_KEYS.FAILED_ATTEMPTS, '0');
+        localStorage.removeItem(STORAGE_KEYS.LOCKOUT_UNTIL);
+
+        setSessionPinSecret(effectiveShopPhone);
+        setUserRole(found.role || 'employee', found.fullName || 'العامل', found.memberId);
+        setIsUnlocked(true);
+        setFailedAttempts(0);
+        setLockoutSecondsLeft(0);
+        lastActivityRef.current = now;
+
+        initFirebaseSync();
+
+        return {
+          success: true,
+          workerName: found.fullName || 'العامل',
+          storeName: finalStoreName,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err?.message || 'فشل تسجيل دخول العامل. تحقق من الاتصال بالإنترنت.',
+        };
+      }
+    },
+    [activePhone, setUserRole]
+  );
+
   // Logout: Clear phone account and lock
   const logout = useCallback(() => {
     stopRealtimeSync();
@@ -554,7 +643,12 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const loginWithCredentials = async (params: LoginCredentialsParams) => {
     if (params.phone) {
-      const res = await loginWithPhone(params.phone);
+      const res = await loginWithPhone(
+        params.phone,
+        undefined,
+        params.password,
+        'login'
+      );
       return {
         success: res.success,
         error: res.error,
@@ -563,14 +657,20 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
     }
     return {
-      success: true,
+      success: false,
+      error: 'رقم الهاتف مطلوب.',
       remainingAttempts: MAX_FAILED_ATTEMPTS,
       lockedOut: false,
     };
   };
 
   const registerAccount = async (params: RegisterAccountParams) => {
-    return await loginWithPhone(params.phone, params.storeName);
+    return await loginWithPhone(
+      params.phone,
+      params.storeName,
+      params.password,
+      'register'
+    );
   };
 
   const sendWhatsAppRecoveryCode = useCallback(async (phone: string) => {
@@ -622,7 +722,31 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     [activePhone]
   );
 
-  const verifyAdminPasswordOnly = async () => true;
+  const verifyAdminPasswordOnly = useCallback(
+    async (password: string): Promise<boolean> => {
+      const cleanPass = String(password || '').trim();
+      if (!cleanPass) return false;
+      try {
+        const settings = await getStoreSettings();
+        if (settings.pinCode && settings.pinCode.trim() === cleanPass) {
+          return true;
+        }
+        const phone = activePhone || getActiveShopPhoneNumber();
+        if (phone) {
+          const snap = await getDoc(doc(firestore, 'shops', phone));
+          if (snap.exists()) {
+            const data = snap.data() as Record<string, any>;
+            const cloudPin = String(data.pinCode || data.pin_code || '').trim();
+            if (cloudPin && cloudPin === cleanPass) {
+              return true;
+            }
+          }
+        }
+      } catch {}
+      return false;
+    },
+    [activePhone]
+  );
 
   const submitAdminApprovalRequest = useCallback(
     async (req: Omit<AdminApprovalRequest, 'id' | 'createdAt' | 'status' | 'requestedBy'>) => {
@@ -695,6 +819,7 @@ export const AccessAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         canAccess,
         setUserRole,
         loginWithPhone,
+        loginAsWorkerWithCode,
         logout,
         lock,
         autoLockMinutes,
